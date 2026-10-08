@@ -1,0 +1,15 @@
+# Dépendances et builds (les sous-projets ont aussi leur propre .gitignore)
+node_modules/
+.next/
+dist/
+coverage/
+
+# Secrets — ne jamais versionner
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Divers
+.DS_Store
+*.tsbuildinfo

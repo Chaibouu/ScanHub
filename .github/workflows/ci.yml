@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    name: Backend — lint, types, tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ScanHub-Back-End
+
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/test
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      # Valeurs factices : uniquement pour que le build et les tests chargent les modules
+      AES_SECRET_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      QR_PEPPER: ci-qr-pepper
+      API_KEY_PEPPER: ci-api-key-pepper
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ScanHub-Back-End/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript type check
+        run: npm run type-check
+
+      - name: Run tests
+        run: npm test -- --coverage
+
+      - name: Build application
+        run: npm run build
+
+  mobile:
+    name: Mobile — lint, types
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app-mobile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: app-mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npx expo lint
+
+      - name: Run TypeScript type check
+        run: npx tsc --noEmit

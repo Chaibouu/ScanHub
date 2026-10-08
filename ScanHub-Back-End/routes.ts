@@ -1,0 +1,50 @@
+import appConfig from "./settings";
+
+/**
+ * An array of routes that are accessible to the public
+ * These routes do not require authentication
+ * @type {string[]}
+ */
+export const publicRoutes = [...appConfig.publicRoutes.map((route) => route)];
+
+/**
+ * An array of routes that are used for authentication
+ * These routes will redirect logged in users to /settings
+ * @type {string[]}
+ */
+export const authRoutes = [
+  "/auth/login",
+  "/auth/logout",
+  "/auth/refresh",
+  "/auth/signup",
+  "/auth/verify",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+  "/auth/resend-verification",
+  "/auth/verify-email",
+];
+
+/**
+ * The prefix for API authentication routes
+ * Routes that start with this prefix are used for API authentication purposes
+ * @type {string}
+ */
+export const apiAuthPrefix = "/api/auth";
+
+/**
+ * The default redirect path after logging in
+ * @type {string}
+ */
+export const DEFAULT_LOGIN_REDIRECT = appConfig.defaultLoginRedirect;
+
+/**
+ * ScanHub v1 API routes that do not require a prior Bearer token
+ * @type {string[]}
+ */
+export const publicApiRoutes = [
+  "/api/v1/auth/login",
+  "/api/v1/auth/refresh",
+  "/api/v1/devices/activate",
+  "/api/health",
+];
+

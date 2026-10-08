@@ -1,0 +1,359 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  AGENT
+  USER
+}
+
+model User {
+  id                    String                 @id @default(cuid())
+  name                  String?
+  firstName             String?
+  lastName              String?
+  email                 String?                @unique
+  emailVerified         DateTime?
+  image                 String?
+  password              String?
+  role                  UserRole               @default(USER)
+  isActive              Boolean                @default(true)
+  deactivatedAt         DateTime?
+  isTwoFactorEnabled    Boolean                @default(false)
+  twoFactorSecret       String? // Secret TOTP (base32) pour l'authentification TOTP
+  isDeleted             Boolean                @default(false)
+  twoFactorConfirmation TwoFactorConfirmation?
+  accounts              Account[]
+  sessions              Session[]
+  userDevices           UserDevice[]
+  FailedLoginAttempt    FailedLoginAttempt[]
+  auditLogs             AuditLog[]
+  blogs                 Blog[]
+  blogPosts             BlogPost[]
+  scans                 Scan[]
+  devices               Device[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id                  String   @id @default(cuid())
+  userId              String
+  sessionToken        String   @unique
+  refreshToken        String   @unique // Token de rafraîchissement haché (SHA-256)
+  expires             DateTime // Date d'expiration du token d'accès
+  refreshTokenExpires DateTime // Expiration du token de rafraîchissement
+  lastActivity        DateTime // Date de la dernière activité utilisateur
+
+  // Impersonation admin
+  isImpersonation Boolean @default(false) // True si cette session est une impersonation
+  impersonatedBy  String? // ID de l'admin qui a initié l'impersonation
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  id      String   @id @default(cuid())
+  email   String
+  userId  String?
+  token   String   @unique
+  expires DateTime
+  tokenId String   @unique
+
+  @@unique([email, token])
+}
+
+model PasswordResetToken {
+  id      String   @id @default(cuid())
+  email   String
+  token   String   @unique
+  expires DateTime
+  tokenId String   @unique
+
+  @@unique([email, token])
+}
+
+model TwoFactorToken {
+  id      String   @id @default(cuid())
+  email   String
+  token   String   @unique
+  expires DateTime
+
+  @@unique([email, token])
+}
+
+model TwoFactorConfirmation {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+}
+
+model FailedLoginAttempt {
+  id        String   @id @default(cuid())
+  userId    String // Clé étrangère pour l'utilisateur
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attemptAt DateTime @default(now()) // Timestamp de la tentative
+}
+
+model UserDevice {
+  id        String   @id @default(cuid())
+  userId    String // Clé étrangère liée à l'utilisateur
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device    String? // Informations sur l'appareil (marque, modèle)
+  os        String? // Informations sur le système d'exploitation
+  browser   String? // Informations sur le navigateur
+  ipAddress String? // Adresse IP de l'utilisateur
+  latitude  Float? // Latitude de la géolocalisation
+  longitude Float? // Longitude de la géolocalisation
+  city      String? // Ville obtenue à partir de la géolocalisation
+  country   String? // Pays obtenu à partir de la géolocalisation
+  createdAt DateTime @default(now()) // Date de la création de l'enregistrement
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  type        String // Type de tâche, ex: "GENERATE_PDF"
+  payload     Json // Données nécessaires à la tâche
+  status      String    @default("PENDING") // "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"
+  attempts    Int       @default(0) // Nombre de tentatives
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+}
+
+model Setting {
+  id             String   @id @default(cuid())
+  key            String   @unique
+  value          String
+  description    String?
+  isCustomizable Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String // "LOGIN_SUCCESS" | "LOGIN_FAILURE" | "LOGOUT" | "2FA_ENABLED" | etc.
+  ipAddress String?
+  userAgent String?
+  status    String // "SUCCESS" | "FAILURE"
+  metadata  Json? // Données contextuelles (email, raison, device…)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// Modèles pour la gestion des blogs
+model Blog {
+  id          String    @id @default(cuid())
+  title       String    @db.VarChar(255)
+  description String?   @db.Text
+  slug        String    @unique @db.VarChar(255)
+  isPublished Boolean   @default(false)
+  isDeleted   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  publishedAt DateTime?
+
+  // Relations
+  authorId String
+  author   User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  posts    BlogPost[]
+
+  @@map("blogs")
+}
+
+model BlogPost {
+  id          String    @id @default(cuid())
+  title       String    @db.VarChar(255)
+  content     String    @db.Text
+  excerpt     String?   @db.Text
+  slug        String    @unique @db.VarChar(255)
+  isPublished Boolean   @default(false)
+  isDeleted   Boolean   @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  blogId   String
+  blog     Blog   @relation(fields: [blogId], references: [id], onDelete: Cascade)
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("blog_posts")
+}
+
+// ==============================================================================
+// SCANHUB MODELS & ENUMS
+// ==============================================================================
+
+enum QRType {
+  BADGE
+  TICKET
+  PASS
+  COUPON
+  DOCUMENT
+  INVITATION
+  CERTIFICATE
+  PARTICIPANT
+  AMBASSADOR
+}
+
+enum QRStatus {
+  ACTIVE
+  USED
+  REVOKED
+  EXPIRED
+  BLOCKED
+  PENDING
+}
+
+enum ScanResult {
+  VALID
+  INVALID
+  EXPIRED
+  REVOKED
+  ALREADY_USED
+  EVENT_CLOSED
+  UNAUTHORIZED
+  DEVICE_BLOCKED
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  sources Source[]
+  events  Event[]
+
+  @@map("organizations")
+}
+
+model Source {
+  id             String       @id @default(cuid())
+  name           String
+  slug           String       @unique
+  apiKeyHash     String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  qrCodes        QRCode[]
+  events         Event[]
+  createdAt      DateTime     @default(now())
+
+  @@map("sources")
+}
+
+model Event {
+  id             String       @id @default(cuid())
+  name           String
+  startsAt       DateTime
+  endsAt         DateTime
+  status         String       @default("ACTIVE")
+  organizationId String
+  sourceId       String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  source         Source?      @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  qrCodes        QRCode[]
+  scans          Scan[]
+  createdAt      DateTime     @default(now())
+
+  @@map("events")
+}
+
+model QRCode {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique
+  offlineHash String?   @unique // SHA-256(token) sans pepper — distribué aux terminaux pour le mode hors-ligne
+  type        QRType
+  status      QRStatus  @default(ACTIVE)
+  reusable    Boolean   @default(false)
+  expiresAt   DateTime?
+  usedAt      DateTime?
+  sourceId    String
+  eventId     String?
+  metadata    Json?
+  source      Source    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  event       Event?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  scans       Scan[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([eventId])
+  @@index([sourceId])
+  @@map("qr_codes")
+}
+
+model Device {
+  id            String    @id @default(cuid())
+  name          String
+  deviceKeyHash String?   @unique // Hash de la clé du terminal (émise à l'activation)
+  active        Boolean   @default(true)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime?
+
+  // Activation par code à usage unique généré depuis le tableau de bord
+  activationCodeHash  String?   @unique
+  activationExpiresAt DateTime?
+  activatedAt         DateTime?
+
+  @@map("devices")
+}
+
+model Scan {
+  id        String     @id @default(cuid())
+  qrId      String?
+  eventId   String?
+  userId    String
+  deviceId  String?
+  result    ScanResult
+  offline   Boolean    @default(false)
+  clientId  String?    @unique
+  scannedAt DateTime
+  metadata  Json?
+  qr        QRCode?    @relation(fields: [qrId], references: [id], onDelete: SetNull)
+  event     Event?     @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, result])
+  @@index([deviceId])
+  @@index([scannedAt])
+  @@map("scans")
+}
