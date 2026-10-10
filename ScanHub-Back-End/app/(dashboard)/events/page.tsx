@@ -3,21 +3,40 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { Calendar, QrCode, CheckCircle2, Users, Building, Plus } from "lucide-react";
+import { QrCode, Building } from "lucide-react";
+import { getUser } from "@/actions/getUser";
+import { CreateEventForm } from "@/components/events/CreateEventForm";
+import { EventStatusActions } from "@/components/events/EventStatusActions";
 
 export const dynamic = "force-dynamic";
 
 export default async function EventsPage() {
-  const events = await prisma.event.findMany({
-    orderBy: { startsAt: "desc" },
-    include: {
-      organization: true,
-      source: true,
-      _count: {
-        select: { qrCodes: true, scans: true },
+  const session = await getUser();
+  const role = session?.user?.user?.role;
+  // Les formulaires ne sont proposés qu'aux administrateurs ; les actions serveur revérifient le rôle
+  const isAdmin = !session?.isImpersonation && (role === "ADMIN" || role === "SUPER_ADMIN");
+
+  const [events, organizations, sources] = await Promise.all([
+    prisma.event.findMany({
+      orderBy: { startsAt: "desc" },
+      include: {
+        organization: true,
+        source: true,
+        _count: {
+          select: { qrCodes: true, scans: true },
+        },
       },
-    },
-  });
+    }),
+    isAdmin
+      ? prisma.organization.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })
+      : [],
+    isAdmin
+      ? prisma.source.findMany({
+          select: { id: true, name: true, organizationId: true },
+          orderBy: { name: "asc" },
+        })
+      : [],
+  ]);
 
   return (
     <div className="space-y-6">
@@ -32,6 +51,17 @@ export default async function EventsPage() {
           </p>
         </div>
       </div>
+
+      {isAdmin && (
+        <Card className="border-border/40 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold">Nouvel événement</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CreateEventForm organizations={organizations} sources={sources} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Liste des événements */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -54,12 +84,12 @@ export default async function EventsPage() {
                     <Badge
                       variant="outline"
                       className={`text-[10px] ${
-                        isOngoing
+                        isOngoing && evt.status === "ACTIVE"
                           ? "border-emerald-500 text-emerald-600 bg-emerald-50/50"
                           : "border-gray-300 text-gray-600"
                       }`}
                     >
-                      {isOngoing ? "EN COURS" : evt.status}
+                      {evt.status !== "ACTIVE" ? evt.status : isOngoing ? "EN COURS" : "PLANIFIÉ"}
                     </Badge>
                     <span className="text-[10px] font-mono text-gray-400">
                       ID: {evt.id.slice(-6)}
@@ -115,7 +145,8 @@ export default async function EventsPage() {
                     </div>
                   </div>
 
-                  <div className="pt-2">
+                  <div className="pt-2 space-y-2">
+                    {isAdmin && <EventStatusActions eventId={evt.id} status={evt.status} />}
                     <Link href={`/scans?eventId=${evt.id}`}>
                       <Button variant="outline" size="sm" className="w-full text-xs gap-1.5">
                         <QrCode className="h-3.5 w-3.5" />

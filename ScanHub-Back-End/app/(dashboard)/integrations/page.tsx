@@ -3,19 +3,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Code } from "lucide-react";
 import { RotateApiKeyButton } from "@/components/integrations/RotateApiKeyButton";
+import {
+  CreateOrganizationForm,
+  CreateSourceForm,
+} from "@/components/integrations/CreatePartnerForms";
 
 export const dynamic = "force-dynamic";
 
 export default async function IntegrationsPage() {
-  const sources = await prisma.source.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      organization: true,
-      _count: {
-        select: { qrCodes: true, events: true },
+  const [sources, organizations] = await Promise.all([
+    prisma.source.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        organization: true,
+        _count: {
+          select: { qrCodes: true, events: true },
+        },
       },
-    },
-  });
+    }),
+    prisma.organization.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -30,6 +37,16 @@ export default async function IntegrationsPage() {
           </p>
         </div>
       </div>
+
+      <Card className="border-border/40 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold">Ajouter une organisation ou un partenaire</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <CreateOrganizationForm />
+          <CreateSourceForm organizations={organizations} />
+        </CardContent>
+      </Card>
 
       {/* Sources existantes */}
       <div className="grid gap-6 md:grid-cols-2">

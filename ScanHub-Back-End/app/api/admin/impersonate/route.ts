@@ -5,6 +5,8 @@ import { getFullTokenPayload, createEncryptedJWT } from "@/lib/tokens";
 import { getUserById } from "@/data/user";
 import type { NextRequest } from "next/server";
 
+const ADMIN_ROLES: string[] = ["ADMIN", "SUPER_ADMIN"];
+
 // Durée d'une session d'impersonation : 15 minutes, non-renouvelable
 const IMPERSONATION_DURATION_MS = 15 * 60 * 1000;
 
@@ -21,8 +23,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Une session d'audit ne peut pas en ouvrir une autre
     const adminPayload = getFullTokenPayload(adminToken);
-    if (!adminPayload?.userId) {
+    if (!adminPayload?.userId || adminPayload.isImpersonation) {
       return NextResponse.json(
         { error: "Token administrateur invalide ou expiré" },
         { status: 401 }
@@ -30,10 +33,25 @@ export async function POST(req: NextRequest) {
     }
 
     // ─── 2. Vérifier le rôle ADMIN ────────────────────────────────────────────
-    const admin = await getUserById(adminPayload.userId);
-    if (!admin || admin.role !== "ADMIN") {
+    const adminSession = await db.session.findUnique({
+      where: { sessionToken: adminToken },
+      select: { userId: true, expires: true },
+    });
+    if (
+      !adminSession ||
+      adminSession.userId !== adminPayload.userId ||
+      adminSession.expires < new Date()
+    ) {
       return NextResponse.json(
-        { error: "Accès refusé — rôle ADMIN requis" },
+        { error: "Session administrateur expirée ou révoquée" },
+        { status: 401 }
+      );
+    }
+
+    const admin = await getUserById(adminPayload.userId);
+    if (!admin || !admin.isActive || !ADMIN_ROLES.includes(admin.role)) {
+      return NextResponse.json(
+        { error: "Accès refusé — rôle administrateur requis" },
         { status: 403 }
       );
     }
@@ -62,8 +80,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Bloquer l'impersonation des autres ADMIN
-    if (targetUser.role === "ADMIN") {
+    // Aucun compte administrateur (ADMIN ou SUPER_ADMIN) ne peut être impersonné
+    if (ADMIN_ROLES.includes(targetUser.role)) {
       return NextResponse.json(
         { error: "Impossible d'impersonner un compte administrateur" },
         { status: 403 }

@@ -45,6 +45,15 @@ function buildCspWithNonce(nonce: string): string {
   return directives.join("; ");
 }
 
+/** Remplace (ou ajoute) un cookie dans l'en-tête Cookie transmis au rendu serveur. */
+function withCookie(cookieHeader: string | null, name: string, value: string): string {
+  const others = (cookieHeader ?? "")
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part && !part.startsWith(`${name}=`));
+  return [...others, `${name}=${encodeURIComponent(value)}`].join("; ");
+}
+
 // ─── Middleware principal ─────────────────────────────────────────────────────
 
 export async function middleware(req: NextRequest) {
@@ -121,6 +130,10 @@ export async function middleware(req: NextRequest) {
 
     // Rafraîchissement du token d'accès si nécessaire
     if (result?.tokenInfo) {
+      requestHeaders.set(
+        "cookie",
+        withCookie(req.headers.get("cookie"), "accessToken", result.tokenInfo.accessToken)
+      );
       const response = NextResponse.next({
         request: { headers: requestHeaders },
       });

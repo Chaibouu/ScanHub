@@ -34,7 +34,19 @@ export type AuditAction =
   // Compte
   | "EMAIL_CHANGED"
   | "ACCOUNT_DISABLED"
-  | "ACCOUNT_DELETED";
+  | "ACCOUNT_ENABLED"
+  | "ACCOUNT_DELETED"
+  // Administration ScanHub
+  | "USER_CREATED"
+  | "USER_ROLE_CHANGED"
+  | "PASSWORD_RESET_BY_ADMIN"
+  | "EVENT_CREATED"
+  | "EVENT_STATUS_CHANGED"
+  | "ORGANIZATION_CREATED"
+  | "SOURCE_CREATED"
+  | "API_KEY_ROTATED"
+  | "DEVICE_CREATED"
+  | "DEVICE_STATUS_CHANGED";
 
 interface AuditParams {
   userId?: string;

@@ -35,8 +35,6 @@ model User {
   userDevices           UserDevice[]
   FailedLoginAttempt    FailedLoginAttempt[]
   auditLogs             AuditLog[]
-  blogs                 Blog[]
-  blogPosts             BlogPost[]
   scans                 Scan[]
   devices               Device[]
 }
@@ -174,47 +172,6 @@ model AuditLog {
   @@index([userId])
   @@index([action])
   @@index([createdAt])
-}
-
-// Modèles pour la gestion des blogs
-model Blog {
-  id          String    @id @default(cuid())
-  title       String    @db.VarChar(255)
-  description String?   @db.Text
-  slug        String    @unique @db.VarChar(255)
-  isPublished Boolean   @default(false)
-  isDeleted   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  publishedAt DateTime?
-
-  // Relations
-  authorId String
-  author   User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  posts    BlogPost[]
-
-  @@map("blogs")
-}
-
-model BlogPost {
-  id          String    @id @default(cuid())
-  title       String    @db.VarChar(255)
-  content     String    @db.Text
-  excerpt     String?   @db.Text
-  slug        String    @unique @db.VarChar(255)
-  isPublished Boolean   @default(false)
-  isDeleted   Boolean   @default(false)
-  publishedAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  // Relations
-  blogId   String
-  blog     Blog   @relation(fields: [blogId], references: [id], onDelete: Cascade)
-  authorId String
-  author   User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
-
-  @@map("blog_posts")
 }
 
 // ==============================================================================

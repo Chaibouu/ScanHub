@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getFullTokenPayload } from "@/lib/tokens";
 import { getUserById } from "@/data/user";
+import { db } from "@/lib/db";
 import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,20 @@ export async function GET() {
       );
     }
 
+    // Un JWT valide ne suffit pas : après déconnexion ou désactivation du compte,
+    // la session n'existe plus et le token doit être refusé immédiatement.
+    const session = await db.session.findUnique({
+      where: { sessionToken: token },
+      select: { userId: true, expires: true },
+    });
+
+    if (!session || session.userId !== payload.userId || session.expires < new Date()) {
+      return NextResponse.json(
+        { error: "Session expirée ou révoquée" },
+        { status: 403 }
+      );
+    }
+
     const user = await getUserById(payload.userId);
 
     if (!user) {
@@ -30,6 +45,10 @@ export async function GET() {
         { error: "Utilisateur non trouvé" },
         { status: 404 }
       );
+    }
+
+    if (!user.isActive) {
+      return NextResponse.json({ error: "Compte désactivé" }, { status: 403 });
     }
 
     // Inclure les métadonnées d'impersonation si présentes dans le token

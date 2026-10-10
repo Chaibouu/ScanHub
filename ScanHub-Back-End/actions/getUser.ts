@@ -39,9 +39,9 @@ export const getUser = cache(async () => {
         const userData = await getUserInfo(accessToken);
         if (!userData.error) {
           return { user: userData };
-        } else {
-          return { error: userData.error };
         }
+        // Token d'accès refusé (expiré, ou remplacé par un rafraîchissement concurrent) :
+        // on tente le refresh ci-dessous. Après une vraie déconnexion, il échouera aussi.
       } catch (error) {
         console.error("Erreur lors de la vérification du token d'accès:", error);
       }
@@ -51,6 +51,10 @@ export const getUser = cache(async () => {
     try {
       const { accessToken: newAccessToken, accessTokenExpiresAt } =
         await refreshUserToken(refreshToken);
+
+      if (!newAccessToken) {
+        return { error: "Session expirée" };
+      }
 
       const userData = await getUserInfo(newAccessToken);
       if (!userData.error) {

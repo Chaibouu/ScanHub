@@ -6,6 +6,15 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "ScanHub-Back-End", "run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "backend-3100",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set NEXT_PUBLIC_APP_URL=http://localhost:3100&& npm --prefix ScanHub-Back-End run dev -- -p 3100"
+      ],
+      "port": 3100
     }
   ]
 }
