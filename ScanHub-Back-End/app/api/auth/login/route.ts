@@ -67,6 +67,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (user.organizationId) {
+      const organization = await db.organization.findUnique({
+        where: { id: user.organizationId },
+        select: { isActive: true },
+      });
+      if (organization && !organization.isActive) {
+        return NextResponse.json(
+          { error: "Cet espace ScanHub est suspendu. Contactez le support." },
+          { status: 403 }
+        );
+      }
+    }
+
     // ─── Backoff progressif ───────────────────────────────────────────────────
     const failedAttempts = await getFailedAttempts(user.id);
     if (failedAttempts >= appConfig.backoff.maxAttempts) {
@@ -108,7 +121,8 @@ export async function POST(req: NextRequest) {
 
     // ─── Pas de 2FA — créer la session directement ────────────────────────────
     if (!appConfig.allowMultipleSessions) {
-      await db.session.deleteMany({ where: { userId: user.id } });
+      // Une seule session web à la fois ; les terminaux mobiles (canal "api") restent connectés
+      await db.session.deleteMany({ where: { userId: user.id, channel: "web" } });
     }
 
     const accessToken = createEncryptedJWT({ userId: user.id, email: user.email }, "1h");
@@ -125,6 +139,7 @@ export async function POST(req: NextRequest) {
       lastActivity: new Date(),
       isImpersonation: false,
       impersonatedBy: null,
+      channel: "web",
     });
 
     // ─── Device + géoloc ──────────────────────────────────────────────────────

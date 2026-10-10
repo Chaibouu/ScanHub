@@ -5,54 +5,12 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createOrganizationAction, createSourceAction } from "@/actions/scanhub-admin";
+import { createSourceAction } from "@/actions/scanhub-admin";
 import { SecretReveal } from "@/components/devices/SecretReveal";
 
 const labelClass = "text-xs font-medium text-gray-600 dark:text-gray-300";
 
-export function CreateOrganizationForm() {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [name, setName] = useState("");
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    startTransition(async () => {
-      const result = await createOrganizationAction({ name });
-      if ("error" in result) {
-        toast.error(result.error);
-        return;
-      }
-      setName("");
-      toast.success("Organisation créée.");
-      router.refresh();
-    });
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-3 md:items-end">
-      <div className="flex-1 space-y-1">
-        <label htmlFor="org-name" className={labelClass}>
-          Nouvelle organisation
-        </label>
-        <Input
-          id="org-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Ex : Ministère de la Jeunesse"
-          minLength={2}
-          maxLength={120}
-          required
-        />
-      </div>
-      <Button type="submit" variant="outline" disabled={isPending}>
-        {isPending ? "Création…" : "Créer l'organisation"}
-      </Button>
-    </form>
-  );
-}
-
-/** Crée un partenaire ; sa clé API n'est affichée qu'une fois, juste après la création. */
+/** Déclare une billetterie externe ; sa clé API n'est affichée qu'une fois, à la création. */
 export function CreateSourceForm({ organizations }: { organizations: { id: string; name: string }[] }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -70,13 +28,13 @@ export function CreateSourceForm({ organizations }: { organizations: { id: strin
       }
       setApiKey(result.apiKey);
       setName("");
-      toast.success("Partenaire créé.");
+      toast.success("Billetterie connectée.");
       router.refresh();
     });
   };
 
   if (organizations.length === 0) {
-    return <p className="text-xs text-gray-500">Créez d'abord une organisation.</p>;
+    return <p className="text-xs text-gray-500">Aucun espace client disponible.</p>;
   }
 
   return (
@@ -84,28 +42,28 @@ export function CreateSourceForm({ organizations }: { organizations: { id: strin
       <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-3 md:items-end">
         <div className="flex-1 space-y-1">
           <label htmlFor="source-name" className={labelClass}>
-            Nouveau partenaire (billetterie)
+            Nom de la billetterie
           </label>
           <Input
             id="source-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ex : EventHub Niger"
+            placeholder="Ex : Ma billetterie en ligne"
             minLength={2}
             maxLength={120}
             required
           />
         </div>
-        <div className="flex-1 space-y-1">
+        {/* Le choix de l'espace n'existe que pour le propriétaire de la plateforme */}
+        <div className={organizations.length > 1 ? "flex-1 space-y-1" : "hidden"}>
           <label htmlFor="source-org" className={labelClass}>
-            Organisation
+            Espace client
           </label>
           <select
             id="source-org"
             value={organizationId}
             onChange={(e) => setOrganizationId(e.target.value)}
             className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-            required
           >
             {organizations.map((org) => (
               <option key={org.id} value={org.id}>
@@ -115,13 +73,13 @@ export function CreateSourceForm({ organizations }: { organizations: { id: strin
           </select>
         </div>
         <Button type="submit" disabled={isPending}>
-          {isPending ? "Création…" : "Créer le partenaire"}
+          {isPending ? "Création…" : "Générer une clé API"}
         </Button>
       </form>
 
       {apiKey && (
         <SecretReveal
-          label="Clé API du partenaire (en-tête x-api-key)"
+          label="Clé API de la billetterie (en-tête x-api-key)"
           value={apiKey}
           onDismiss={() => setApiKey(null)}
         />

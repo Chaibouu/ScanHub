@@ -4,20 +4,22 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { QrCode, Building } from "lucide-react";
-import { getUser } from "@/actions/getUser";
+import { redirect } from "next/navigation";
+import { getViewer, scope } from "@/lib/tenant";
 import { CreateEventForm } from "@/components/events/CreateEventForm";
 import { EventStatusActions } from "@/components/events/EventStatusActions";
 
 export const dynamic = "force-dynamic";
 
 export default async function EventsPage() {
-  const session = await getUser();
-  const role = session?.user?.user?.role;
+  const viewer = await getViewer();
+  if (!viewer) redirect("/auth/login");
   // Les formulaires ne sont proposés qu'aux administrateurs ; les actions serveur revérifient le rôle
-  const isAdmin = !session?.isImpersonation && (role === "ADMIN" || role === "SUPER_ADMIN");
+  const isAdmin = viewer.isAdmin;
 
   const [events, organizations, sources] = await Promise.all([
     prisma.event.findMany({
+      where: scope.events(viewer),
       orderBy: { startsAt: "desc" },
       include: {
         organization: true,
@@ -28,10 +30,15 @@ export default async function EventsPage() {
       },
     }),
     isAdmin
-      ? prisma.organization.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })
+      ? prisma.organization.findMany({
+          where: scope.organizations(viewer),
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
       : [],
     isAdmin
       ? prisma.source.findMany({
+          where: { ...scope.sources(viewer), NOT: { slug: { endsWith: "--scanhub" } } },
           select: { id: true, name: true, organizationId: true },
           orderBy: { name: "asc" },
         })
@@ -147,10 +154,15 @@ export default async function EventsPage() {
 
                   <div className="pt-2 space-y-2">
                     {isAdmin && <EventStatusActions eventId={evt.id} status={evt.status} />}
+                    <Link href={`/events/${evt.id}`}>
+                      <Button size="sm" className="w-full text-xs gap-1.5">
+                        <QrCode className="h-3.5 w-3.5" />
+                        Gérer les billets
+                      </Button>
+                    </Link>
                     <Link href={`/scans?eventId=${evt.id}`}>
                       <Button variant="outline" size="sm" className="w-full text-xs gap-1.5">
-                        <QrCode className="h-3.5 w-3.5" />
-                        Voir les Scans de cet événement
+                        Voir les scans de cet événement
                       </Button>
                     </Link>
                   </div>

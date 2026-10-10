@@ -8,6 +8,7 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { adminNavigation } from "@/settings/navigation";
 import appConfig from "@/settings";
+import { useSession } from "@/context/SessionContext";
 import { Icon } from "@iconify/react";
 import { ChevronDown, Menu, X, PanelLeft, PanelLeftClose } from "lucide-react";
 
@@ -129,6 +130,13 @@ function SidebarContent({
   isMobile,
   onNavigate,
 }: SidebarContentProps) {
+  const { user } = useSession();
+  const role = user?.role;
+  // Confort d'affichage uniquement : l'accès réel est contrôlé par le middleware et les pages
+  const visibleNavigation = adminNavigation.filter(
+    (item) => !role || item.allowedRoles.includes(role)
+  );
+
   return (
     <div className="flex flex-col h-full">
       {/* Header : logo + bouton pin */}
@@ -164,7 +172,7 @@ function SidebarContent({
       {/* Navigation */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
         <nav className="space-y-0.5">
-          {adminNavigation.map((item, idx) => (
+          {visibleNavigation.map((item, idx) => (
             <NavItem
               key={idx}
               item={item}

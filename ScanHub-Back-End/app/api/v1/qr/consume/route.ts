@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { qrService } from '@/modules/qr/qrService';
 import { deviceService } from '@/modules/devices/deviceService';
 import { authorizeUser } from '@/lib/rbac';
+import { toViewer } from '@/lib/tenant';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { z } from 'zod';
 
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
 
     // L'opérateur et le terminal viennent toujours de l'authentification, jamais du corps de la requête
     const result = await qrService.consume({
+      organizationId: toViewer(auth.user).organizationId,
       token: parsed.data.token,
       eventId: parsed.data.eventId,
       clientId: parsed.data.clientId,

@@ -35,6 +35,33 @@ API REST centralisée et panneau d'administration pour la gestion des QR codes, 
 - Backoff progressif sur les tentatives de connexion échouées
 - Notification email sur nouvelle IP/appareil
 
+## ScanHub en SaaS : un espace par client
+
+Chaque organisateur dispose d'un **espace fermé** (table `Organization`). Ses membres ne voient
+et ne modifient que ses événements, billets, scans, terminaux et clés API.
+
+| Rôle | Portée |
+|------|--------|
+| `SUPER_ADMIN` | Propriétaire de la plateforme. N'appartient à aucun espace, voit tout, gère les espaces (`/admin/organizations`) |
+| `ADMIN` | Administrateur de **son** espace : équipe, événements, billets, terminaux, billetteries |
+| `AGENT` | Contrôle les entrées depuis l'application mobile, dans son espace |
+| `USER` | Consultation du tableau de bord de son espace |
+
+- **Inscription libre** (`/auth/signup`) : crée l'espace et son premier administrateur.
+- **Équipe** (`/admin/users`) : l'administrateur ajoute ses agents (mot de passe temporaire affiché une fois).
+- **Billets** (`/events/<id>`) : saisie ou import CSV, QR codes à imprimer, export CSV, révocation.
+- **Billetteries connectées** (`/integrations`) : une clé API par billetterie externe.
+- **Formules** (`settings/plans.ts`) : tout est gratuit ; la formule `FREE` fixe des plafonds anti-abus
+  (événements ouverts, billets par événement, terminaux, membres). Le propriétaire peut passer un
+  espace en `UNLIMITED` ou le suspendre.
+
+**Règle pour tout nouveau code** : une requête Prisma sur une donnée métier passe toujours par les
+filtres `scope.*` de `lib/tenant.ts`. Le cloisonnement est vérifié par `tests/e2e/tenant.e2e.cjs`.
+
+Les tokens des billets créés dans ScanHub sont stockés hachés (vérification) et chiffrés
+AES-256-GCM (`tokenEnc`, pour ré-imprimer le QR). Changer `AES_SECRET_KEY` rend ces QR
+non ré-affichables (ils restent valides au scan).
+
 ## API v1 (terminaux mobiles & partenaires)
 
 L'API `/api/v1` utilise **la même authentification que le portail web** (JWT RS256 chiffré
@@ -292,6 +319,7 @@ npx prisma migrate deploy  # Applique les migrations (production / CI)
 npm run db:studio        # Prisma Studio
 npm run seed             # Seed base de données
 npm test                 # Tests Jest
+npm run test:e2e         # Tests de bout en bout (serveur lancé + base locale, voir tests/e2e/run.cjs)
 npm run test:coverage    # Couverture
 ```
 

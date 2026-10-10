@@ -1,18 +1,23 @@
 import prisma from "@/lib/prisma";
+import { redirect } from "next/navigation";
+import { getViewer, scope } from "@/lib/tenant";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Code } from "lucide-react";
 import { RotateApiKeyButton } from "@/components/integrations/RotateApiKeyButton";
-import {
-  CreateOrganizationForm,
-  CreateSourceForm,
-} from "@/components/integrations/CreatePartnerForms";
+import { CreateSourceForm } from "@/components/integrations/CreatePartnerForms";
 
 export const dynamic = "force-dynamic";
 
 export default async function IntegrationsPage() {
+  const viewer = await getViewer();
+  if (!viewer) redirect("/auth/login");
+  if (!viewer.isAdmin) redirect("/unauthorized");
+
   const [sources, organizations] = await Promise.all([
     prisma.source.findMany({
+      // La source interne « création manuelle » n'est pas une billetterie connectée par API
+      where: { ...scope.sources(viewer), NOT: { slug: { endsWith: "--scanhub" } } },
       orderBy: { createdAt: "desc" },
       include: {
         organization: true,
@@ -21,7 +26,11 @@ export default async function IntegrationsPage() {
         },
       },
     }),
-    prisma.organization.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.organization.findMany({
+      where: scope.organizations(viewer),
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
 
   return (
@@ -40,10 +49,13 @@ export default async function IntegrationsPage() {
 
       <Card className="border-border/40 shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold">Ajouter une organisation ou un partenaire</CardTitle>
+          <CardTitle className="text-sm font-semibold">Connecter une billetterie externe</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <CreateOrganizationForm />
+        <CardContent className="space-y-2">
+          <p className="text-xs text-gray-500">
+            Une billetterie connectée envoie automatiquement ses billets vendus à ScanHub grâce à
+            une clé API. Pour créer vos billets vous-même, utilisez la page d'un événement.
+          </p>
           <CreateSourceForm organizations={organizations} />
         </CardContent>
       </Card>
@@ -52,7 +64,7 @@ export default async function IntegrationsPage() {
       <div className="grid gap-6 md:grid-cols-2">
         {sources.length === 0 ? (
           <div className="col-span-full py-12 text-center text-sm text-gray-500">
-            Aucun partenaire configuré.
+            Aucune billetterie connectée.
           </div>
         ) : (
           sources.map((src) => {

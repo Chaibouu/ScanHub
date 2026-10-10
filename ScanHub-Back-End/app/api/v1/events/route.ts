@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { authorizeUser } from '@/lib/rbac';
+import { scope, toViewer } from '@/lib/tenant';
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,8 +11,11 @@ export async function GET(req: NextRequest) {
       return jsonError(auth.error, auth.status);
     }
 
+    const viewer = toViewer(auth.user);
+
     const [events, scanGroups] = await Promise.all([
       prisma.event.findMany({
+        where: scope.events(viewer),
         orderBy: { startsAt: 'desc' },
         include: {
           organization: true,
@@ -21,7 +25,7 @@ export async function GET(req: NextRequest) {
       // Une seule requête agrégée au lieu de deux COUNT par événement
       prisma.scan.groupBy({
         by: ['eventId', 'result'],
-        where: { eventId: { not: null } },
+        where: { eventId: { not: null }, event: scope.events(viewer) },
         _count: { _all: true },
       }),
     ]);

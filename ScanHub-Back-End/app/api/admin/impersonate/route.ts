@@ -80,6 +80,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Un administrateur d'espace ne peut auditer que les membres de son propre espace
+    if (admin.role !== "SUPER_ADMIN" && targetUser.organizationId !== admin.organizationId) {
+      return NextResponse.json(
+        { error: "Utilisateur cible introuvable" },
+        { status: 404 }
+      );
+    }
+
     // Aucun compte administrateur (ADMIN ou SUPER_ADMIN) ne peut être impersonné
     if (ADMIN_ROLES.includes(targetUser.role)) {
       return NextResponse.json(

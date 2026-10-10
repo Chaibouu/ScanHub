@@ -133,20 +133,29 @@ export const deviceService = {
   },
 
   /** Résout le terminal à partir de l'en-tête x-device-key (null si absent ou inconnu). */
-  async findByRequest(request: Request): Promise<{ provided: boolean; device: Device | null }> {
+  async findByRequest(request: Request): Promise<{
+    provided: boolean;
+    device: Device | null;
+    /** Espace auquel appartient le terminal (celui de son agent) */
+    organizationId: string | null;
+  }> {
     const deviceKey = request.headers.get(DEVICE_KEY_HEADER)?.trim();
-    if (!deviceKey) return { provided: false, device: null };
+    if (!deviceKey) return { provided: false, device: null, organizationId: null };
 
-    const device = await prisma.device.findUnique({
+    const found = await prisma.device.findUnique({
       where: { deviceKeyHash: hashApiKey(deviceKey) },
+      include: { user: { select: { organizationId: true } } },
     });
-    if (!device || !device.activatedAt) return { provided: true, device: null };
+    if (!found || !found.activatedAt) {
+      return { provided: true, device: null, organizationId: null };
+    }
+    const { user: owner, ...device } = found;
 
     if (!device.lastSeenAt || Date.now() - device.lastSeenAt.getTime() > LAST_SEEN_THROTTLE_MS) {
       await prisma.device.update({ where: { id: device.id }, data: { lastSeenAt: new Date() } });
     }
 
-    return { provided: true, device };
+    return { provided: true, device, organizationId: owner.organizationId };
   },
 
   /**
@@ -156,10 +165,12 @@ export const deviceService = {
    *   toléré pour les administrateurs.
    */
   async checkForScan(request: Request, user: User): Promise<DeviceCheck> {
-    const { provided, device } = await this.findByRequest(request);
+    const { provided, device, organizationId } = await this.findByRequest(request);
 
     if (provided) {
-      if (!device) {
+      // Un terminal ne sert que dans l'espace qui l'a activé
+      const sameSpace = user.role === 'SUPER_ADMIN' || organizationId === user.organizationId;
+      if (!device || !sameSpace) {
         return { ok: false, status: 403, error: 'Terminal inconnu ou non activé.' };
       }
       if (!device.active) {

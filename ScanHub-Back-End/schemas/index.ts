@@ -87,6 +87,16 @@ export const SignupSchema = z.object({
     .min(3, {
       message: "Le nom doit comporter au moins 3 caractères",
     }),
+  // Nom de l'espace client créé avec le compte (organisateur, structure, billetterie…)
+  organizationName: z
+    .string({
+      message: "Le nom de votre organisation est requis",
+    })
+    .trim()
+    .min(2, {
+      message: "Le nom de l'organisation doit comporter au moins 2 caractères",
+    })
+    .max(120),
 });
 
 export const ResendVerificationSchema = z.object({

@@ -32,6 +32,7 @@ export const RegisterForm = () => {
       email: "",
       password: "",
       name: "",
+      organizationName: "",
     },
   });
 
@@ -50,10 +51,9 @@ export const RegisterForm = () => {
 
   return (
     <CardWrapper
-      headerLabel="Create an account"
-      backButtonLabel="Already have an account?"
+      headerLabel="Créez votre espace ScanHub — gratuit"
+      backButtonLabel="Déjà un compte ? Se connecter"
       backButtonHref="/auth/login"
-      showSocial
     >
       <Form {...form}>
         <form 
@@ -63,15 +63,32 @@ export const RegisterForm = () => {
           <div className="space-y-4">
             <FormField
               control={form.control}
-              name="name"
+              name="organizationName"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Name</FormLabel>
+                  <FormLabel>Nom de votre organisation</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
                       disabled={isPending}
-                      placeholder="John Doe"
+                      placeholder="Ex : Festival du Sahel"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Votre nom</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      disabled={isPending}
+                      placeholder="Prénom Nom"
                     />
                   </FormControl>
                   <FormMessage />
@@ -101,7 +118,7 @@ export const RegisterForm = () => {
               name="password"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Password</FormLabel>
+                  <FormLabel>Mot de passe</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -122,7 +139,7 @@ export const RegisterForm = () => {
             type="submit"
             className="w-full"
           >
-            Create an account
+            Créer mon espace
           </Button>
         </form>
       </Form>

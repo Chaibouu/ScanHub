@@ -39,6 +39,8 @@ async function resetDatabase() {
       where: { metadata: { path: ["registeredVia"], equals: "API_INTEGRATION" } },
     });
     await prisma.user.deleteMany({ where: { email: { endsWith: "@e2e.scanhub.test" } } });
+    // Espaces jetables créés par les tests de cloisonnement (événements et sources en cascade)
+    await prisma.organization.deleteMany({ where: { slug: { startsWith: "e2e-" } } });
   } finally {
     await prisma.$disconnect();
   }
@@ -83,7 +85,7 @@ function run(command, args) {
 
   let failed = 0;
   await resetRateLimits();
-  for (const file of ["api.e2e.mjs", "web.e2e.mjs", "security.e2e.cjs"]) {
+  for (const file of ["api.e2e.mjs", "web.e2e.mjs", "security.e2e.cjs", "tenant.e2e.cjs"]) {
     console.log(`\n━━ ${file} ━━`);
     if (run("node", [path.join("tests", "e2e", file)]) !== 0) failed++;
     await resetRateLimits();

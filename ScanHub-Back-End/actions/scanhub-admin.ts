@@ -5,35 +5,37 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { User, UserRole } from "@prisma/client";
 import { z } from "zod";
-import { getUser } from "@/actions/getUser";
 import prisma from "@/lib/prisma";
 import { audit } from "@/lib/audit";
 import { logger } from "@/lib/logger";
 import { resetFailedAttempts } from "@/lib/backoff";
+import { getViewer, scope, Viewer } from "@/lib/tenant";
 import { deviceService } from "@/modules/devices/deviceService";
 import { integrationService } from "@/modules/integrations/integrationService";
+import {
+  organizationService,
+  PlanLimitError,
+} from "@/modules/organizations/organizationService";
+import { PLANS } from "@/settings/plans";
+
+/**
+ * Actions d'administration du tableau de bord.
+ *
+ * Toutes passent par `requireAdmin()` puis par les filtres `scope.*` : un administrateur
+ * n'agit que sur les données de son propre espace. Seul le SUPER_ADMIN (propriétaire de
+ * la plateforme) agit sur tous les espaces et gère les espaces eux-mêmes.
+ */
 
 // ─── Garde d'accès ────────────────────────────────────────────────────────────
 
-interface Admin {
-  id: string;
-  role: UserRole;
-}
-
-async function requireAdmin(): Promise<Admin | null> {
-  const result = await getUser();
-  const currentUser = result?.user?.user;
-
-  // Une session d'audit (impersonation) ne donne jamais de droits d'administration
-  if (!currentUser || result?.isImpersonation) return null;
-  if (currentUser.role !== "ADMIN" && currentUser.role !== "SUPER_ADMIN") return null;
-
-  return { id: currentUser.id, role: currentUser.role };
+async function requireAdmin(): Promise<Viewer | null> {
+  const viewer = await getViewer();
+  return viewer?.isAdmin ? viewer : null;
 }
 
 /**
  * Hiérarchie : un SUPER_ADMIN gère tout sauf les autres SUPER_ADMIN ;
- * un ADMIN ne gère que les comptes AGENT et USER.
+ * un ADMIN ne gère que les comptes AGENT et USER de son espace.
  */
 function canManageRole(actor: UserRole, target: UserRole): boolean {
   if (target === "SUPER_ADMIN") return false;
@@ -43,8 +45,10 @@ function canManageRole(actor: UserRole, target: UserRole): boolean {
 
 const FORBIDDEN = { error: "Action réservée aux administrateurs." } as const;
 const NOT_ALLOWED = { error: "Vous n'avez pas les droits pour gérer ce compte." } as const;
+const OWNER_ONLY = { error: "Action réservée au propriétaire de la plateforme." } as const;
 
 function fail(err: unknown, message: string) {
+  if (err instanceof PlanLimitError) return { error: err.message };
   logger.error({ err }, message);
   return { error: message };
 }
@@ -53,15 +57,24 @@ function generateTempPassword(): string {
   return crypto.randomBytes(9).toString("base64url");
 }
 
-function slugify(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
+/**
+ * Espace visé par une création. Un administrateur crée toujours dans son espace ;
+ * le propriétaire de la plateforme doit en désigner un.
+ */
+async function resolveOrganizationId(
+  viewer: Viewer,
+  requested?: string
+): Promise<string | null> {
+  if (viewer.organizationId !== null) return viewer.organizationId;
+  if (!requested) return null;
+  const organization = await prisma.organization.findUnique({
+    where: { id: requested },
+    select: { id: true },
+  });
+  return organization?.id ?? null;
 }
+
+const NO_SPACE = { error: "Choisissez l'espace client concerné." } as const;
 
 // ─── Utilisateurs ─────────────────────────────────────────────────────────────
 
@@ -71,13 +84,19 @@ const createUserSchema = z.object({
   name: z.string().trim().min(2, "Nom trop court").max(100),
   email: z.string().trim().toLowerCase().email("Adresse email invalide"),
   role: z.enum(MANAGEABLE_ROLES),
+  organizationId: z.string().optional(),
 });
 
 /**
- * Crée un compte avec un mot de passe temporaire, retourné une seule fois.
+ * Ajoute un membre à l'espace, avec un mot de passe temporaire retourné une seule fois.
  * Le compte est créé par un administrateur : l'email est considéré comme vérifié.
  */
-export async function createUserAction(input: { name: string; email: string; role: string }) {
+export async function createUserAction(input: {
+  name: string;
+  email: string;
+  role: string;
+  organizationId?: string;
+}) {
   const admin = await requireAdmin();
   if (!admin) return FORBIDDEN;
 
@@ -88,8 +107,13 @@ export async function createUserAction(input: { name: string; email: string; rol
   if (!canManageRole(admin.role, parsed.data.role)) return NOT_ALLOWED;
 
   try {
+    const organizationId = await resolveOrganizationId(admin, parsed.data.organizationId);
+    if (!organizationId) return NO_SPACE;
+
     const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
     if (existing) return { error: "Un compte existe déjà avec cet email." };
+
+    await organizationService.assertCanAddMember(organizationId);
 
     const tempPassword = generateTempPassword();
     const user = await prisma.user.create({
@@ -97,6 +121,7 @@ export async function createUserAction(input: { name: string; email: string; rol
         name: parsed.data.name,
         email: parsed.data.email,
         role: parsed.data.role,
+        organizationId,
         password: await bcrypt.hash(tempPassword, 10),
         emailVerified: new Date(),
       },
@@ -106,7 +131,7 @@ export async function createUserAction(input: { name: string; email: string; rol
       userId: admin.id,
       action: "USER_CREATED",
       status: "SUCCESS",
-      metadata: { targetUserId: user.id, role: user.role },
+      metadata: { targetUserId: user.id, role: user.role, organizationId },
     });
 
     revalidatePath("/admin/users");
@@ -117,13 +142,16 @@ export async function createUserAction(input: { name: string; email: string; rol
 }
 
 async function loadManageableUser(
-  admin: Admin,
+  admin: Viewer,
   userId: string
 ): Promise<{ error: string } | { target: User }> {
   if (userId === admin.id) {
     return { error: "Vous ne pouvez pas modifier votre propre compte ici." };
   }
-  const target = await prisma.user.findFirst({ where: { id: userId, isDeleted: false } });
+  // Le filtre d'espace rend invisible tout compte d'un autre client
+  const target = await prisma.user.findFirst({
+    where: { id: userId, isDeleted: false, ...scope.users(admin) },
+  });
   if (!target) return { error: "Utilisateur introuvable." };
   if (!canManageRole(admin.role, target.role)) return NOT_ALLOWED;
   return { target };
@@ -223,7 +251,7 @@ export async function resetUserPasswordAction(userId: string) {
 const createEventSchema = z
   .object({
     name: z.string().trim().min(2, "Nom trop court").max(200),
-    organizationId: z.string().min(1, "Organisation requise"),
+    organizationId: z.string().optional(),
     sourceId: z.string().optional(),
     startsAt: z.coerce.date(),
     endsAt: z.coerce.date(),
@@ -235,7 +263,7 @@ const createEventSchema = z
 
 export async function createEventAction(input: {
   name: string;
-  organizationId: string;
+  organizationId?: string;
   sourceId?: string;
   startsAt: string;
   endsAt: string;
@@ -249,25 +277,24 @@ export async function createEventAction(input: {
   }
 
   try {
-    const organization = await prisma.organization.findUnique({
-      where: { id: parsed.data.organizationId },
-      select: { id: true },
-    });
-    if (!organization) return { error: "Organisation introuvable." };
+    const organizationId = await resolveOrganizationId(admin, parsed.data.organizationId);
+    if (!organizationId) return NO_SPACE;
 
     if (parsed.data.sourceId) {
-      // La billetterie rattachée doit appartenir à la même organisation
+      // La billetterie rattachée doit appartenir au même espace
       const source = await prisma.source.findFirst({
-        where: { id: parsed.data.sourceId, organizationId: organization.id },
+        where: { id: parsed.data.sourceId, organizationId },
         select: { id: true },
       });
-      if (!source) return { error: "Ce partenaire n'appartient pas à l'organisation choisie." };
+      if (!source) return { error: "Cette billetterie n'appartient pas à cet espace." };
     }
+
+    await organizationService.assertCanAddEvent(organizationId);
 
     const event = await prisma.event.create({
       data: {
         name: parsed.data.name,
-        organizationId: organization.id,
+        organizationId,
         sourceId: parsed.data.sourceId ?? null,
         startsAt: parsed.data.startsAt,
         endsAt: parsed.data.endsAt,
@@ -278,7 +305,7 @@ export async function createEventAction(input: {
       userId: admin.id,
       action: "EVENT_CREATED",
       status: "SUCCESS",
-      metadata: { eventId: event.id },
+      metadata: { eventId: event.id, organizationId },
     });
 
     revalidatePath("/events");
@@ -296,11 +323,18 @@ export async function setEventStatusAction(eventId: string, status: string) {
   if (!parsed.success) return { error: "Statut invalide." };
 
   try {
-    const { count } = await prisma.event.updateMany({
-      where: { id: eventId },
-      data: { status: parsed.data },
+    const event = await prisma.event.findFirst({
+      where: { id: eventId, ...scope.events(admin) },
+      select: { id: true, status: true, organizationId: true },
     });
-    if (count === 0) return { error: "Événement introuvable." };
+    if (!event) return { error: "Événement introuvable." };
+
+    // Rouvrir un événement clôturé compte dans la limite d'événements ouverts
+    if (event.status === "CLOSED" && parsed.data !== "CLOSED") {
+      await organizationService.assertCanAddEvent(event.organizationId);
+    }
+
+    await prisma.event.update({ where: { id: event.id }, data: { status: parsed.data } });
 
     await audit({
       userId: admin.id,
@@ -310,74 +344,35 @@ export async function setEventStatusAction(eventId: string, status: string) {
     });
 
     revalidatePath("/events");
+    revalidatePath(`/events/${eventId}`);
     return { success: true as const };
   } catch (err) {
     return fail(err, "Mise à jour de l'événement impossible.");
   }
 }
 
-// ─── Organisations & partenaires API ──────────────────────────────────────────
+// ─── Billetteries connectées par API ──────────────────────────────────────────
 
 const nameSchema = z.string().trim().min(2, "Nom trop court").max(120);
 
-export async function createOrganizationAction(input: { name: string }) {
+/** Déclare une billetterie externe et génère sa clé API (affichée une seule fois). */
+export async function createSourceAction(input: { name: string; organizationId?: string }) {
   const admin = await requireAdmin();
   if (!admin) return FORBIDDEN;
 
   const parsed = nameSchema.safeParse(input.name);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Nom invalide" };
 
-  const slug = slugify(parsed.data);
-  if (!slug) return { error: "Nom invalide." };
-
   try {
-    if (await prisma.organization.findUnique({ where: { slug } })) {
-      return { error: "Une organisation porte déjà ce nom." };
-    }
-
-    const organization = await prisma.organization.create({
-      data: { name: parsed.data, slug },
-    });
-
-    await audit({
-      userId: admin.id,
-      action: "ORGANIZATION_CREATED",
-      status: "SUCCESS",
-      metadata: { organizationId: organization.id },
-    });
-
-    revalidatePath("/integrations");
-    revalidatePath("/events");
-    return { success: true as const };
-  } catch (err) {
-    return fail(err, "Création de l'organisation impossible.");
-  }
-}
-
-/** Crée un partenaire et sa première clé API (affichée une seule fois). */
-export async function createSourceAction(input: { name: string; organizationId: string }) {
-  const admin = await requireAdmin();
-  if (!admin) return FORBIDDEN;
-
-  const parsed = nameSchema.safeParse(input.name);
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Nom invalide" };
-
-  const slug = slugify(parsed.data);
-  if (!slug) return { error: "Nom invalide." };
-
-  try {
-    const organization = await prisma.organization.findUnique({
-      where: { id: input.organizationId },
-      select: { id: true },
-    });
-    if (!organization) return { error: "Organisation introuvable." };
-
-    if (await prisma.source.findUnique({ where: { slug } })) {
-      return { error: "Un partenaire porte déjà ce nom." };
-    }
+    const organizationId = await resolveOrganizationId(admin, input.organizationId);
+    if (!organizationId) return NO_SPACE;
 
     const source = await prisma.source.create({
-      data: { name: parsed.data, slug, organizationId: organization.id },
+      data: {
+        name: parsed.data,
+        slug: await organizationService.uniqueSourceSlug(parsed.data),
+        organizationId,
+      },
     });
     const { apiKey } = await integrationService.rotateApiKey(source.id);
 
@@ -385,13 +380,13 @@ export async function createSourceAction(input: { name: string; organizationId: 
       userId: admin.id,
       action: "SOURCE_CREATED",
       status: "SUCCESS",
-      metadata: { sourceId: source.id },
+      metadata: { sourceId: source.id, organizationId },
     });
 
     revalidatePath("/integrations");
     return { success: true as const, apiKey };
   } catch (err) {
-    return fail(err, "Création du partenaire impossible.");
+    return fail(err, "Création de la billetterie impossible.");
   }
 }
 
@@ -400,11 +395,11 @@ export async function rotateSourceApiKeyAction(sourceId: string) {
   if (!admin) return FORBIDDEN;
 
   try {
-    const existing = await prisma.source.findUnique({
-      where: { id: sourceId },
+    const existing = await prisma.source.findFirst({
+      where: { id: sourceId, ...scope.sources(admin) },
       select: { id: true },
     });
-    if (!existing) return { error: "Partenaire introuvable." };
+    if (!existing) return { error: "Billetterie introuvable." };
 
     const { apiKey } = await integrationService.rotateApiKey(sourceId);
 
@@ -440,10 +435,14 @@ export async function createDeviceAction(input: { name: string; userId: string }
 
   try {
     const agent = await prisma.user.findFirst({
-      where: { id: parsed.data.userId, isActive: true, isDeleted: false },
-      select: { id: true },
+      where: { id: parsed.data.userId, isActive: true, isDeleted: false, ...scope.users(admin) },
+      select: { id: true, organizationId: true },
     });
     if (!agent) return { error: "Agent introuvable ou inactif." };
+
+    if (agent.organizationId) {
+      await organizationService.assertCanAddDevice(agent.organizationId);
+    }
 
     const { device, activationCode, activationExpiresAt } =
       await deviceService.createPendingDevice(parsed.data.name, agent.id);
@@ -472,7 +471,7 @@ export async function setDeviceActiveAction(deviceId: string, active: boolean) {
 
   try {
     const { count } = await prisma.device.updateMany({
-      where: { id: deviceId },
+      where: { id: deviceId, ...scope.devices(admin) },
       data: { active },
     });
     if (count === 0) return { error: "Terminal introuvable." };
@@ -496,8 +495,8 @@ export async function resetDeviceActivationAction(deviceId: string) {
   if (!admin) return FORBIDDEN;
 
   try {
-    const existing = await prisma.device.findUnique({
-      where: { id: deviceId },
+    const existing = await prisma.device.findFirst({
+      where: { id: deviceId, ...scope.devices(admin) },
       select: { id: true },
     });
     if (!existing) return { error: "Terminal introuvable." };
@@ -512,5 +511,122 @@ export async function resetDeviceActivationAction(deviceId: string) {
     };
   } catch (err) {
     return fail(err, "Régénération du code impossible.");
+  }
+}
+
+// ─── Console propriétaire : gestion des espaces clients ───────────────────────
+
+async function requireOwner(): Promise<Viewer | null> {
+  const viewer = await getViewer();
+  return viewer?.isSuperAdmin ? viewer : null;
+}
+
+const createOrganizationSchema = z.object({
+  name: nameSchema,
+  adminName: z.string().trim().min(2, "Nom du responsable trop court").max(100),
+  adminEmail: z.string().trim().toLowerCase().email("Adresse email invalide"),
+});
+
+/** Ouvre un espace client et son premier compte administrateur. */
+export async function createOrganizationAction(input: {
+  name: string;
+  adminName: string;
+  adminEmail: string;
+}) {
+  const owner = await requireOwner();
+  if (!owner) return OWNER_ONLY;
+
+  const parsed = createOrganizationSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Données invalides" };
+  }
+
+  try {
+    if (await prisma.user.findUnique({ where: { email: parsed.data.adminEmail } })) {
+      return { error: "Un compte existe déjà avec cet email." };
+    }
+
+    const organization = await organizationService.create(parsed.data.name);
+    const tempPassword = generateTempPassword();
+    await prisma.user.create({
+      data: {
+        name: parsed.data.adminName,
+        email: parsed.data.adminEmail,
+        role: "ADMIN",
+        organizationId: organization.id,
+        password: await bcrypt.hash(tempPassword, 10),
+        emailVerified: new Date(),
+      },
+    });
+
+    await audit({
+      userId: owner.id,
+      action: "ORGANIZATION_CREATED",
+      status: "SUCCESS",
+      metadata: { organizationId: organization.id },
+    });
+
+    revalidatePath("/admin/organizations");
+    return { success: true as const, tempPassword };
+  } catch (err) {
+    return fail(err, "Création de l'espace impossible.");
+  }
+}
+
+/** Suspend ou réactive un espace. La suspension coupe toutes les sessions de ses membres. */
+export async function setOrganizationActiveAction(organizationId: string, active: boolean) {
+  const owner = await requireOwner();
+  if (!owner) return OWNER_ONLY;
+
+  try {
+    const existing = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { id: true },
+    });
+    if (!existing) return { error: "Espace introuvable." };
+
+    await prisma.$transaction([
+      prisma.organization.update({ where: { id: organizationId }, data: { isActive: active } }),
+      ...(active ? [] : [prisma.session.deleteMany({ where: { user: { organizationId } } })]),
+    ]);
+
+    await audit({
+      userId: owner.id,
+      action: active ? "ORGANIZATION_ENABLED" : "ORGANIZATION_SUSPENDED",
+      status: "SUCCESS",
+      metadata: { organizationId },
+    });
+
+    revalidatePath("/admin/organizations");
+    return { success: true as const };
+  } catch (err) {
+    return fail(err, "Mise à jour de l'espace impossible.");
+  }
+}
+
+export async function setOrganizationPlanAction(organizationId: string, plan: string) {
+  const owner = await requireOwner();
+  if (!owner) return OWNER_ONLY;
+
+  if (!(plan in PLANS)) return { error: "Formule inconnue." };
+
+  try {
+    const { count } = await prisma.organization.updateMany({
+      where: { id: organizationId },
+      data: { plan },
+    });
+    if (count === 0) return { error: "Espace introuvable." };
+
+    await audit({
+      userId: owner.id,
+      action: "ORGANIZATION_PLAN_CHANGED",
+      status: "SUCCESS",
+      metadata: { organizationId, plan },
+    });
+
+    revalidatePath("/admin/organizations");
+    return { success: true as const };
+  } catch (err) {
+    return fail(err, "Changement de formule impossible.");
   }
 }

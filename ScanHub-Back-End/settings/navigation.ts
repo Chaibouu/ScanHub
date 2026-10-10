@@ -20,7 +20,7 @@ export const adminNavigation: NavigationItem[] = [
     allowedRoles: ["SUPER_ADMIN", "ADMIN", "USER", "AGENT"],
   },
   {
-    title: "Événements",
+    title: "Événements & Billets",
     icon: "material-symbols:calendar-today",
     path: "/events",
     allowedRoles: ["SUPER_ADMIN", "ADMIN", "USER"],
@@ -38,27 +38,22 @@ export const adminNavigation: NavigationItem[] = [
     allowedRoles: ["SUPER_ADMIN", "ADMIN"],
   },
   {
-    title: "Partenaires (API)",
+    title: "Équipe",
+    icon: "material-symbols:group",
+    path: "/admin/users",
+    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+  },
+  {
+    title: "Billetteries (API)",
     icon: "material-symbols:integration-instructions",
     path: "/integrations",
     allowedRoles: ["SUPER_ADMIN", "ADMIN"],
   },
   {
-    title: "Administration",
+    // Console du propriétaire de la plateforme : tous les espaces clients
+    title: "Espaces clients",
     icon: "eos-icons:admin",
-    path: "#",
-    children: [
-      {
-        title: "Utilisateurs",
-        path: "/admin/users",
-        allowedRoles: ["SUPER_ADMIN", "ADMIN"],
-      },
-      {
-        title: "Paramètres",
-        path: "/dashboard/settings",
-        allowedRoles: ["SUPER_ADMIN", "ADMIN"],
-      },
-    ],
-    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+    path: "/admin/organizations",
+    allowedRoles: ["SUPER_ADMIN"],
   },
 ];

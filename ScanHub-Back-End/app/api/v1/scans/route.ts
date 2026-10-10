@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { authorizeUser } from '@/lib/rbac';
+import { scope, toViewer } from '@/lib/tenant';
 import { Prisma, ScanResult } from '@prisma/client';
 
 const MAX_PAGE_SIZE = 200;
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
       return jsonError('Paramètre result invalide', 400);
     }
 
-    const where: Prisma.ScanWhereInput = {};
+    const where: Prisma.ScanWhereInput = { ...scope.scans(toViewer(auth.user)) };
     if (eventId) where.eventId = eventId;
     if (resultFilter) where.result = resultFilter as ScanResult;
     if (offlineFilter) where.offline = offlineFilter === 'true';

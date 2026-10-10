@@ -37,6 +37,10 @@ model User {
   auditLogs             AuditLog[]
   scans                 Scan[]
   devices               Device[]
+  organizationId        String?
+  organization          Organization?          @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
 }
 
 model Account {
@@ -70,6 +74,9 @@ model Session {
   // Impersonation admin
   isImpersonation Boolean @default(false) // True si cette session est une impersonation
   impersonatedBy  String? // ID de l'admin qui a initié l'impersonation
+
+  // "web" (tableau de bord) ou "api" (application mobile) : se connecter sur l'un ne ferme pas l'autre
+  channel String @default("web")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -214,8 +221,13 @@ model Organization {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
+  // Formule d'abonnement (voir settings/plans.ts) — tout est gratuit pour l'instant
+  plan      String   @default("FREE")
+  // false = espace suspendu par le propriétaire de la plateforme (connexions refusées)
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  users   User[]
   sources Source[]
   events  Event[]
 
@@ -257,6 +269,7 @@ model QRCode {
   id          String    @id @default(cuid())
   tokenHash   String    @unique
   offlineHash String?   @unique // SHA-256(token) sans pepper — distribué aux terminaux pour le mode hors-ligne
+  tokenEnc    String?   @db.Text // Token chiffré AES-256-GCM — uniquement pour les billets créés dans ScanHub
   type        QRType
   status      QRStatus  @default(ACTIVE)
   reusable    Boolean   @default(false)

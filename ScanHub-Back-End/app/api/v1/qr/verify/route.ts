@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { qrService } from '@/modules/qr/qrService';
 import { deviceService } from '@/modules/devices/deviceService';
 import { authorizeUser } from '@/lib/rbac';
+import { toViewer } from '@/lib/tenant';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { z } from 'zod';
 
@@ -30,7 +31,10 @@ export async function POST(req: NextRequest) {
       return jsonError('Requête de vérification invalide', 400, parsed.error.format());
     }
 
-    const result = await qrService.verify(parsed.data);
+    const result = await qrService.verify({
+      ...parsed.data,
+      organizationId: toViewer(auth.user).organizationId,
+    });
     return jsonSuccess(result);
   } catch (error) {
     return jsonServerError(error, 'Erreur interne lors de la vérification');

@@ -59,7 +59,7 @@ export function CreateEventForm({ organizations, sources }: CreateEventFormProps
   if (organizations.length === 0) {
     return (
       <p className="text-xs text-gray-500">
-        Créez d'abord une organisation dans la rubrique « Partenaires (API) ».
+        Aucun espace client disponible.
       </p>
     );
   }
@@ -83,9 +83,9 @@ export function CreateEventForm({ organizations, sources }: CreateEventFormProps
           required
         />
       </div>
-      <div className="space-y-1">
+      <div className={organizations.length > 1 ? "space-y-1" : "hidden"}>
         <label htmlFor="event-org" className={labelClass}>
-          Organisation
+          Espace client
         </label>
         <select
           id="event-org"
@@ -106,7 +106,7 @@ export function CreateEventForm({ organizations, sources }: CreateEventFormProps
       </div>
       <div className="space-y-1">
         <label htmlFor="event-source" className={labelClass}>
-          Billetterie partenaire (optionnel)
+          Billetterie connectée (optionnel)
         </label>
         <select
           id="event-source"

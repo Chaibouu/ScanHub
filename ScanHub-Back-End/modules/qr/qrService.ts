@@ -3,6 +3,8 @@ import { hashToken } from '@/lib/crypto';
 import { Prisma, ScanResult, QRStatus, QRType } from '@prisma/client';
 
 export interface VerifyInput {
+  /** Espace de l'opérateur — null pour le propriétaire de la plateforme (aucun filtre) */
+  organizationId: string | null;
   token: string;
   eventId?: string;
   source?: string;
@@ -10,6 +12,7 @@ export interface VerifyInput {
 }
 
 export interface ConsumeInput {
+  organizationId: string | null;
   token: string;
   eventId?: string;
   userId: string;
@@ -18,6 +21,7 @@ export interface ConsumeInput {
 }
 
 export interface OfflineScanInput {
+  organizationId: string | null;
   token: string;
   clientId: string;
   eventId?: string;
@@ -30,6 +34,17 @@ export interface OfflineScanInput {
 type QRWithRelations = Prisma.QRCodeGetPayload<{ include: { source: true; event: true } }>;
 
 const QR_INCLUDE = { source: true, event: true } as const;
+
+/**
+ * Recherche d'un QR par son token, limitée à l'espace de l'opérateur.
+ * Un QR appartenant à un autre client est indiscernable d'un QR inexistant.
+ */
+function qrWhere(tokenHash: string, organizationId: string | null): Prisma.QRCodeWhereInput {
+  return {
+    tokenHash,
+    ...(organizationId === null ? {} : { source: { organizationId } }),
+  };
+}
 
 interface Evaluation {
   code: ScanResult;
@@ -150,8 +165,8 @@ export const qrService = {
     const tokenHash = hashToken(input.token);
     const now = new Date();
 
-    const qr = await prisma.qRCode.findUnique({
-      where: { tokenHash },
+    const qr = await prisma.qRCode.findFirst({
+      where: qrWhere(tokenHash, input.organizationId),
       include: QR_INCLUDE,
     });
 
@@ -195,8 +210,8 @@ export const qrService = {
 
     try {
       return await prisma.$transaction(async (tx) => {
-        const qr = await tx.qRCode.findUnique({
-          where: { tokenHash },
+        const qr = await tx.qRCode.findFirst({
+          where: qrWhere(tokenHash, input.organizationId),
           include: QR_INCLUDE,
         });
 
@@ -209,7 +224,7 @@ export const qrService = {
 
         if (!qr) {
           await tx.scan.create({
-            data: { ...baseScan, eventId: input.eventId, result: 'INVALID' },
+            data: { ...baseScan, result: 'INVALID' },
           });
 
           return {
@@ -296,7 +311,10 @@ export const qrService = {
 
     try {
       return await prisma.$transaction(async (tx) => {
-        const qr = await tx.qRCode.findUnique({ where: { tokenHash }, include: QR_INCLUDE });
+        const qr = await tx.qRCode.findFirst({
+          where: qrWhere(tokenHash, input.organizationId),
+          include: QR_INCLUDE,
+        });
 
         let finalResult: ScanResult = input.claimedResult;
         let conflictMessage: string | undefined;
@@ -333,7 +351,7 @@ export const qrService = {
           data: {
             clientId: input.clientId,
             qrId: qr?.id,
-            eventId: input.eventId || qr?.eventId,
+            eventId: qr ? input.eventId || qr.eventId : undefined,
             userId: input.userId,
             deviceId: input.deviceId,
             result: finalResult,

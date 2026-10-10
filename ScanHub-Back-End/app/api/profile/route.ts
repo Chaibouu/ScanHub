@@ -51,6 +51,10 @@ export async function GET() {
       return NextResponse.json({ error: "Compte désactivé" }, { status: 403 });
     }
 
+    if (user.organization && !user.organization.isActive) {
+      return NextResponse.json({ error: "Espace suspendu" }, { status: 403 });
+    }
+
     // Inclure les métadonnées d'impersonation si présentes dans le token
     return NextResponse.json({
       user,

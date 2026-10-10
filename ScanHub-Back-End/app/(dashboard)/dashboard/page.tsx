@@ -1,4 +1,6 @@
 import prisma from "@/lib/prisma";
+import { redirect } from "next/navigation";
+import { getViewer, scope } from "@/lib/tenant";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +18,9 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const viewer = await getViewer();
+  if (!viewer) redirect("/auth/login");
+
   let totalScans = 0;
   let validScans = 0;
   let rejectedScans = 0;
@@ -35,12 +40,13 @@ export default async function DashboardPage() {
       eventsList,
       recentScansList,
     ] = await Promise.all([
-      prisma.scan.count(),
-      prisma.scan.count({ where: { result: "VALID" } }),
-      prisma.scan.count({ where: { result: { not: "VALID" } } }),
-      prisma.qRCode.count(),
-      prisma.device.count({ where: { active: true } }),
+      prisma.scan.count({ where: scope.scans(viewer) }),
+      prisma.scan.count({ where: { ...scope.scans(viewer), result: "VALID" } }),
+      prisma.scan.count({ where: { ...scope.scans(viewer), result: { not: "VALID" } } }),
+      prisma.qRCode.count({ where: scope.qrCodes(viewer) }),
+      prisma.device.count({ where: { ...scope.devices(viewer), active: true } }),
       prisma.event.findMany({
+        where: scope.events(viewer),
         take: 3,
         orderBy: { startsAt: "desc" },
         include: {
@@ -50,6 +56,7 @@ export default async function DashboardPage() {
         },
       }),
       prisma.scan.findMany({
+        where: scope.scans(viewer),
         take: 6,
         orderBy: { scannedAt: "desc" },
         include: {

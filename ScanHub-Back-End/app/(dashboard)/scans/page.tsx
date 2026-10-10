@@ -1,4 +1,6 @@
 import prisma from "@/lib/prisma";
+import { redirect } from "next/navigation";
+import { getViewer, scope } from "@/lib/tenant";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,11 +14,14 @@ export default async function ScansPage({
 }: {
   searchParams: Promise<{ result?: string; eventId?: string }>;
 }) {
+  const viewer = await getViewer();
+  if (!viewer) redirect("/auth/login");
+
   const params = await searchParams;
   const resultFilter = params.result;
   const eventFilter = params.eventId;
 
-  const whereClause: any = {};
+  const whereClause: any = { ...scope.scans(viewer) };
   if (resultFilter) {
     whereClause.result = resultFilter;
   }
@@ -36,7 +41,7 @@ export default async function ScansPage({
       },
     }),
     prisma.scan.count({ where: whereClause }),
-    prisma.event.findMany({ select: { id: true, name: true } }),
+    prisma.event.findMany({ where: scope.events(viewer), select: { id: true, name: true } }),
   ]);
 
   return (

@@ -1,4 +1,6 @@
 import prisma from "@/lib/prisma";
+import { redirect } from "next/navigation";
+import { getViewer, scope } from "@/lib/tenant";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Smartphone, Key } from "lucide-react";
@@ -8,8 +10,13 @@ import { DeviceRowActions } from "@/components/devices/DeviceRowActions";
 export const dynamic = "force-dynamic";
 
 export default async function DevicesPage() {
+  const viewer = await getViewer();
+  if (!viewer) redirect("/auth/login");
+  if (!viewer.isAdmin) redirect("/unauthorized");
+
   const [devices, agents] = await Promise.all([
     prisma.device.findMany({
+      where: scope.devices(viewer),
       orderBy: { createdAt: "desc" },
       include: {
         user: { select: { name: true, email: true } },
@@ -17,9 +24,10 @@ export default async function DevicesPage() {
     }),
     prisma.user.findMany({
       where: {
+        ...scope.users(viewer),
         isActive: true,
         isDeleted: false,
-        role: { in: ["AGENT", "ADMIN", "SUPER_ADMIN"] },
+        role: { in: ["AGENT", "ADMIN"] },
       },
       select: { id: true, name: true, email: true, role: true },
       orderBy: { name: "asc" },

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { qrService } from '@/modules/qr/qrService';
 import { deviceService } from '@/modules/devices/deviceService';
 import { authorizeUser } from '@/lib/rbac';
+import { toViewer } from '@/lib/tenant';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { scans } = parsed.data;
+    const { organizationId } = toViewer(auth.user);
     const results: Array<{ clientId: string; status: PushStatus; result?: string; message?: string }> = [];
     const counters: Record<PushStatus, number> = { ACCEPTED: 0, DUPLICATE: 0, CONFLICT: 0, REJECTED: 0 };
     const latestAllowed = Date.now() + CLOCK_SKEW_MS;
@@ -67,6 +69,7 @@ export async function POST(req: NextRequest) {
         // L'opérateur et le terminal viennent de l'authentification ; le résultat annoncé
         // par le terminal est revalidé côté serveur (voir qrService.recordOfflineScan).
         const outcome = await qrService.recordOfflineScan({
+          organizationId,
           token: scanItem.token,
           clientId: scanItem.clientId,
           eventId: scanItem.eventId,

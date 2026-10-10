@@ -61,6 +61,7 @@ function publicUser(user: User) {
     email: user.email,
     role: user.role,
     active: user.isActive,
+    organizationId: user.organizationId,
   };
 }
 
@@ -73,7 +74,10 @@ export const authService = {
    */
   async login(email: string, passwordPlain: string, meta: LoginMeta = {}) {
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      include: { organization: { select: { isActive: true } } },
+    });
 
     if (!user || user.isDeleted || !user.password) {
       await audit({
@@ -128,6 +132,10 @@ export const authService = {
       );
     }
 
+    if (user.organization && !user.organization.isActive) {
+      throw new AuthError('Cet espace ScanHub est suspendu. Contactez le support.', 403);
+    }
+
     await resetFailedAttempts(user.id);
 
     // 2FA TOTP : même challenge que le web, à finaliser via POST /api/auth/2fa/login
@@ -148,6 +156,7 @@ export const authService = {
         expires: new Date(Date.now() + ACCESS_TOKEN_TTL_SEC * 1000),
         refreshTokenExpires: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
         lastActivity: new Date(),
+        channel: 'api',
       },
     });
 
@@ -236,15 +245,18 @@ export const authService = {
 
     const session = await prisma.session.findUnique({
       where: { sessionToken: token },
-      include: { user: true },
+      include: { user: { include: { organization: { select: { isActive: true } } } } },
     });
 
     if (!session || session.userId !== payload.userId || session.expires < new Date()) {
       return null;
     }
 
-    const { user, ...sessionOnly } = session;
+    const { user: userWithOrganization, ...sessionOnly } = session;
+    const { organization, ...user } = userWithOrganization;
     if (!user.isActive || user.isDeleted) return null;
+    // Espace suspendu par le propriétaire de la plateforme : plus aucun accès
+    if (organization && !organization.isActive) return null;
 
     return { user, session: sessionOnly, token };
   },

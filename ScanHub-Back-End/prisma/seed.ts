@@ -13,6 +13,21 @@ async function main() {
   console.log('🌱 Début du peuplement initial de ScanHub (Seeding)...');
 
   // 1. Utilisateurs (SUPER_ADMIN, ADMIN, AGENT)
+  // 1. Espace client de démonstration (les comptes admin et agent en sont membres)
+  let organization = await prisma.organization.findUnique({
+    where: { slug: 'scanhub-niger' },
+  });
+
+  if (!organization) {
+    organization = await prisma.organization.create({
+      data: {
+        name: 'ScanHub Organisation Niger',
+        slug: 'scanhub-niger',
+      },
+    });
+    console.log(`✅ Organisation créée : ${organization.name}`);
+  }
+
   // Mots de passe : fournis par l'environnement, sinon générés aléatoirement et affichés
   // une seule fois. Aucun mot de passe n'est écrit dans le code source.
   const usersToSeed = [
@@ -50,6 +65,8 @@ async function main() {
           name: u.name,
           email: u.email,
           role: u.role,
+          // Le SUPER_ADMIN est le propriétaire de la plateforme : il n'appartient à aucun espace
+          organizationId: u.role === UserRole.SUPER_ADMIN ? null : organization.id,
           emailVerified: new Date(),
           password: await bcrypt.hash(password, 10),
         },
@@ -64,26 +81,12 @@ async function main() {
         where: { id: existing.id },
         data: {
           role: u.role,
+          organizationId: u.role === UserRole.SUPER_ADMIN ? null : organization.id,
           ...(u.password ? { password: await bcrypt.hash(u.password, 10) } : {}),
         },
       });
       console.log(`ℹ️ Utilisateur mis à jour : ${u.email}`);
     }
-  }
-
-  // 2. Organisation ScanHub
-  let organization = await prisma.organization.findUnique({
-    where: { slug: 'scanhub-niger' },
-  });
-
-  if (!organization) {
-    organization = await prisma.organization.create({
-      data: {
-        name: 'ScanHub Organisation Niger',
-        slug: 'scanhub-niger',
-      },
-    });
-    console.log(`✅ Organisation créée : ${organization.name}`);
   }
 
   // 3. Sources d'intégration tierces (EventHub, JNJL)

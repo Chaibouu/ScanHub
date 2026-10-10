@@ -60,6 +60,13 @@ function aesDecrypt(encryptedToken: string): string {
   return decrypted.toString("utf8");
 }
 
+/**
+ * Chiffrement réversible d'un secret à conserver en base (ex : token d'un billet
+ * que l'organisateur doit pouvoir ré-imprimer). Même clé AES-256-GCM que les JWT.
+ */
+export const encryptSecret = (plaintext: string): string => aesEncrypt(plaintext);
+export const decryptSecret = (ciphertext: string): string => aesDecrypt(ciphertext);
+
 // ─── Two-Factor Token ─────────────────────────────────────────────────────────
 
 export const generateTwoFactorToken = async (email: string) => {

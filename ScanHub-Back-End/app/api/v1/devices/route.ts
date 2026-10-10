@@ -3,6 +3,8 @@ import prisma from '@/lib/prisma';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { authorizeUser, ADMIN_ROLES } from '@/lib/rbac';
 import { deviceService } from '@/modules/devices/deviceService';
+import { organizationService, PlanLimitError } from '@/modules/organizations/organizationService';
+import { scope, toViewer } from '@/lib/tenant';
 import { z } from 'zod';
 
 export async function GET(req: NextRequest) {
@@ -12,8 +14,11 @@ export async function GET(req: NextRequest) {
       return jsonError(auth.error, auth.status);
     }
 
+    const viewer = toViewer(auth.user);
+
     const [devices, scanCounts] = await Promise.all([
       prisma.device.findMany({
+        where: scope.devices(viewer),
         orderBy: { createdAt: 'desc' },
         include: {
           user: { select: { id: true, name: true, email: true, firstName: true } },
@@ -21,7 +26,7 @@ export async function GET(req: NextRequest) {
       }),
       prisma.scan.groupBy({
         by: ['deviceId'],
-        where: { deviceId: { not: null } },
+        where: { deviceId: { not: null }, ...scope.scans(viewer) },
         _count: { _all: true },
       }),
     ]);
@@ -60,12 +65,27 @@ export async function POST(req: NextRequest) {
       return jsonError('Requête invalide', 400, parsed.error.format());
     }
 
+    // L'agent doit être un membre de l'espace de l'administrateur
     const agent = await prisma.user.findFirst({
-      where: { id: parsed.data.userId, isActive: true, isDeleted: false },
-      select: { id: true },
+      where: {
+        id: parsed.data.userId,
+        isActive: true,
+        isDeleted: false,
+        ...scope.users(toViewer(auth.user)),
+      },
+      select: { id: true, organizationId: true },
     });
     if (!agent) {
       return jsonError('Agent introuvable ou inactif', 404);
+    }
+
+    if (agent.organizationId) {
+      try {
+        await organizationService.assertCanAddDevice(agent.organizationId);
+      } catch (error) {
+        if (error instanceof PlanLimitError) return jsonError(error.message, 403);
+        throw error;
+      }
     }
 
     const { device, activationCode, activationExpiresAt } =
@@ -102,7 +122,9 @@ export async function PATCH(req: NextRequest) {
       return jsonError('Requête invalide', 400, parsed.error.format());
     }
 
-    const existing = await prisma.device.findUnique({ where: { id: parsed.data.deviceId } });
+    const existing = await prisma.device.findFirst({
+      where: { id: parsed.data.deviceId, ...scope.devices(toViewer(auth.user)) },
+    });
     if (!existing) {
       return jsonError('Appareil introuvable', 404);
     }

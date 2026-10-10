@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { authorizeUser, ADMIN_ROLES } from '@/lib/rbac';
+import { scope, toViewer } from '@/lib/tenant';
 import { z } from 'zod';
 
 export async function GET(
@@ -16,8 +17,8 @@ export async function GET(
 
     const { id } = await params;
 
-    const event = await prisma.event.findUnique({
-      where: { id },
+    const event = await prisma.event.findFirst({
+      where: { id, ...scope.events(toViewer(auth.user)) },
       include: {
         organization: { select: { id: true, name: true, slug: true } },
         source: { select: { id: true, name: true, slug: true } },
@@ -97,7 +98,10 @@ export async function PATCH(
       return jsonError('Paramètres de mise à jour invalides', 400, parsed.error.format());
     }
 
-    const existing = await prisma.event.findUnique({ where: { id }, select: { id: true } });
+    const existing = await prisma.event.findFirst({
+      where: { id, ...scope.events(toViewer(auth.user)) },
+      select: { id: true },
+    });
     if (!existing) {
       return jsonError('Événement introuvable', 404);
     }

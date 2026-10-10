@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 
 export const getUserByEmail = async (email: string) => {
   try {
@@ -20,10 +21,10 @@ export const getUserByEmail = async (email: string) => {
 //   }
 // };
 
-export async function getAllUsers() {
+export async function getAllUsers(where: Prisma.UserWhereInput = {}) {
   try {
     return await db.user.findMany({
-      where: { isDeleted: false },
+      where: { ...where, isDeleted: false },
       select: {
         id: true,
         name: true,
@@ -34,6 +35,8 @@ export async function getAllUsers() {
         isActive: true,
         emailVerified: true,
         image: true,
+        organizationId: true,
+        organization: { select: { name: true } },
       },
       orderBy: { role: "asc" },
     });
@@ -54,6 +57,8 @@ export async function getUserById(userId: string) {
         role: true,
         isActive: true,
         image: true,
+        organizationId: true,
+        organization: { select: { name: true, isActive: true, plan: true } },
       },
     });
 

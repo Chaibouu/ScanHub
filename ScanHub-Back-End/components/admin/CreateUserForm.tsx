@@ -18,18 +18,30 @@ const ROLE_LABELS: Record<string, string> = {
  * Création d'un compte par un administrateur.
  * Le mot de passe temporaire n'est affiché qu'une fois, juste après la création.
  */
-export function CreateUserForm({ allowedRoles }: { allowedRoles: string[] }) {
+interface CreateUserFormProps {
+  allowedRoles: string[];
+  /** Renseigné uniquement pour le propriétaire de la plateforme, qui choisit l'espace */
+  organizations?: { id: string; name: string }[];
+}
+
+export function CreateUserForm({ allowedRoles, organizations = [] }: CreateUserFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState(allowedRoles[0] ?? "AGENT");
+  const [organizationId, setOrganizationId] = useState(organizations[0]?.id ?? "");
   const [created, setCreated] = useState<{ email: string; tempPassword: string } | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     startTransition(async () => {
-      const result = await createUserAction({ name, email, role });
+      const result = await createUserAction({
+        name,
+        email,
+        role,
+        organizationId: organizationId || undefined,
+      });
       if ("error" in result) {
         toast.error(result.error);
         return;
@@ -90,8 +102,27 @@ export function CreateUserForm({ allowedRoles }: { allowedRoles: string[] }) {
             ))}
           </select>
         </div>
+        {organizations.length > 0 && (
+          <div className="space-y-1">
+            <label htmlFor="user-org" className="text-xs font-medium text-gray-600 dark:text-gray-300">
+              Espace client
+            </label>
+            <select
+              id="user-org"
+              value={organizationId}
+              onChange={(e) => setOrganizationId(e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              {organizations.map((org) => (
+                <option key={org.id} value={org.id}>
+                  {org.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <Button type="submit" disabled={isPending}>
-          {isPending ? "Création…" : "Créer le compte"}
+          {isPending ? "Création…" : "Ajouter à l'équipe"}
         </Button>
       </form>
 

@@ -6,6 +6,7 @@ export const signup = async (data: {
   name: string;
   email: string;
   password: string;
+  organizationName: string;
 }) => {
   const validatedData = SignupSchema.safeParse(data);
 
@@ -17,7 +18,7 @@ export const signup = async (data: {
     };
   }
 
-  const { name, email, password } = validatedData.data;
+  const { name, email, password, organizationName } = validatedData.data;
 
   try {
     // Appeler l'API signup
@@ -26,7 +27,7 @@ export const signup = async (data: {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, organizationName }),
       }
     );
 

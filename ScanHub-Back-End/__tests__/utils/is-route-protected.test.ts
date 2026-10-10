@@ -13,10 +13,14 @@ describe('isRouteProtected', () => {
     expect(isRouteProtected('USER', '/integrations')).toBe(true)
   })
 
-  it('applies the same rule to nested menu entries', () => {
+  it('applies the same rule to nested paths', () => {
     expect(isRouteProtected('ADMIN', '/admin/users')).toBe(false)
     expect(isRouteProtected('AGENT', '/admin/users')).toBe(true)
-    expect(isRouteProtected('USER', '/dashboard/settings')).toBe(true)
+  })
+
+  it('reserves the owner console to the platform owner', () => {
+    expect(isRouteProtected('SUPER_ADMIN', '/admin/organizations')).toBe(false)
+    expect(isRouteProtected('ADMIN', '/admin/organizations')).toBe(true)
   })
 
   it('also covers sub-pages of a protected route', () => {

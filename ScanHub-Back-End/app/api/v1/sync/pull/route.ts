@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { deviceService } from '@/modules/devices/deviceService';
 import { authorizeUser } from '@/lib/rbac';
+import { scope, toViewer } from '@/lib/tenant';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 
 export async function GET(req: NextRequest) {
@@ -28,6 +29,15 @@ export async function GET(req: NextRequest) {
     const since = sinceParam ? new Date(sinceParam) : undefined;
     if (since && Number.isNaN(since.getTime())) {
       return jsonError('Paramètre since invalide (date ISO attendue)', 400);
+    }
+
+    // L'événement doit appartenir à l'espace de l'opérateur
+    const event = await prisma.event.findFirst({
+      where: { id: eventId, ...scope.events(toViewer(auth.user)) },
+      select: { id: true },
+    });
+    if (!event) {
+      return jsonError('Événement introuvable', 404);
     }
 
     const qrs = await prisma.qRCode.findMany({

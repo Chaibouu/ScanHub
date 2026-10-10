@@ -1,5 +1,6 @@
 import { getAllUsers } from "@/data/user";
-import { getUser } from "@/actions/getUser";
+import prisma from "@/lib/prisma";
+import { getViewer, scope } from "@/lib/tenant";
 import { ImpersonateButton } from "@/components/admin/ImpersonateButton";
 import { CreateUserForm } from "@/components/admin/CreateUserForm";
 import { UserRowActions } from "@/components/admin/UserRowActions";
@@ -17,18 +18,19 @@ const ROLE_STYLES: Record<string, string> = {
 
 // Page Server Component — pas de "use client" nécessaire
 export default async function AdminUsersPage() {
-  const result = await getUser();
-  const currentUser = result?.user?.user;
+  const currentUser = await getViewer();
+  if (!currentUser) redirect("/auth/login");
+  if (!currentUser.isAdmin) redirect("/unauthorized");
 
-  if (
-    !currentUser ||
-    (currentUser.role !== UserRole.ADMIN && currentUser.role !== UserRole.SUPER_ADMIN)
-  ) {
-    redirect("/unauthorized");
-  }
+  const isSuperAdmin = currentUser.isSuperAdmin;
 
-  const users = await getAllUsers();
-  const isSuperAdmin = currentUser.role === UserRole.SUPER_ADMIN;
+  // Un administrateur ne voit que les membres de son espace
+  const [users, organizations] = await Promise.all([
+    getAllUsers(scope.users(currentUser)),
+    isSuperAdmin
+      ? prisma.organization.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })
+      : [],
+  ]);
 
   // Même hiérarchie que côté serveur (actions/scanhub-admin.ts) : un ADMIN gère AGENT et USER,
   // un SUPER_ADMIN gère aussi les ADMIN. Personne ne se modifie soi-même ici.
@@ -47,7 +49,7 @@ export default async function AdminUsersPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Gestion des utilisateurs
+          {isSuperAdmin ? "Tous les utilisateurs" : "Mon équipe"}
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           {users.length} compte{users.length !== 1 ? "s" : ""} — le bouton{" "}
@@ -57,8 +59,11 @@ export default async function AdminUsersPage() {
       </div>
 
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-boxdark shadow-sm p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Nouveau compte</h2>
-        <CreateUserForm allowedRoles={isSuperAdmin ? ["AGENT", "USER", "ADMIN"] : ["AGENT", "USER"]} />
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Ajouter un membre</h2>
+        <CreateUserForm
+          allowedRoles={isSuperAdmin ? ["AGENT", "USER", "ADMIN"] : ["AGENT", "USER"]}
+          organizations={organizations}
+        />
       </div>
 
       <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-x-auto bg-white dark:bg-boxdark shadow-sm">
@@ -115,7 +120,11 @@ export default async function AdminUsersPage() {
                         )}
                       </p>
                       <p className="text-xs text-gray-400">
-                        {user.emailVerified ? "Email vérifié" : "Email non vérifié"}
+                        {isSuperAdmin
+                          ? user.organization?.name ?? "Plateforme"
+                          : user.emailVerified
+                            ? "Email vérifié"
+                            : "Email non vérifié"}
                       </p>
                     </div>
                   </div>

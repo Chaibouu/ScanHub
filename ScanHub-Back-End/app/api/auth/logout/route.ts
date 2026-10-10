@@ -26,9 +26,9 @@ export async function POST(req: Request) {
     // Extraire l'ID utilisateur du token décrypté
     const { userId } = decryptedToken as { userId: string };
 
-    // Rechercher et supprimer toutes les sessions pour cet utilisateur
+    // Ferme les sessions web de cet utilisateur ; ses terminaux mobiles restent connectés
     await db.session.deleteMany({
-      where: { userId },
+      where: { userId, channel: "web" },
     });
 
     // Réponse de succès

@@ -49,7 +49,7 @@ const profile = (token) => fetch(B + '/api/profile', { headers: { Authorization:
   // ── Impersonation
   const admin = await webLogin('admin@gmail.com', ADMIN_PW);
   let r = await impersonate(admin.accessToken, superAdmin.id);
-  ok('ADMIN ne peut pas impersonner un SUPER_ADMIN', r.s === 403, r.s);
+  ok('ADMIN ne peut pas impersonner un SUPER_ADMIN', r.s === 403 || r.s === 404, r.s);
   r = await impersonate(admin.accessToken, agent.id);
   ok('ADMIN peut auditer un AGENT', r.s === 200 && r.j.impersonationToken, r.s);
   const impToken = r.j?.impersonationToken;

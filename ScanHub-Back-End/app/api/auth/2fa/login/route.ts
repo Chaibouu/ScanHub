@@ -90,7 +90,8 @@ export async function POST(req: NextRequest) {
 
     // ─── Créer la session complète ────────────────────────────────────────────
     if (!appConfig.allowMultipleSessions) {
-      await db.session.deleteMany({ where: { userId: user.id } });
+      // Une seule session web à la fois ; les terminaux mobiles (canal "api") restent connectés
+      await db.session.deleteMany({ where: { userId: user.id, channel: "web" } });
     }
 
     const accessToken = createEncryptedJWT({ userId: user.id, email: user.email }, "1h");
@@ -107,6 +108,7 @@ export async function POST(req: NextRequest) {
       lastActivity: new Date(),
       isImpersonation: false,
       impersonatedBy: null,
+      channel: "web",
     });
 
     // ─── Device + géoloc ─────────────────────────────────────────────────────
