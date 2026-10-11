@@ -270,6 +270,8 @@ model QRCode {
   tokenHash   String    @unique
   offlineHash String?   @unique // SHA-256(token) sans pepper — distribué aux terminaux pour le mode hors-ligne
   tokenEnc    String?   @db.Text // Token chiffré AES-256-GCM — uniquement pour les billets créés dans ScanHub
+  // Référence du client (n° de badge, de commande…) : rejouer la même création rend le même code
+  externalId  String?
   type        QRType
   status      QRStatus  @default(ACTIVE)
   reusable    Boolean   @default(false)
@@ -284,6 +286,7 @@ model QRCode {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  @@unique([sourceId, externalId])
   @@index([eventId])
   @@index([sourceId])
   @@map("qr_codes")
@@ -308,22 +311,30 @@ model Device {
 }
 
 model Scan {
-  id        String     @id @default(cuid())
-  qrId      String?
-  eventId   String?
-  userId    String
-  deviceId  String?
-  result    ScanResult
-  offline   Boolean    @default(false)
-  clientId  String?    @unique
-  scannedAt DateTime
-  metadata  Json?
-  qr        QRCode?    @relation(fields: [qrId], references: [id], onDelete: SetNull)
-  event     Event?     @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String     @id @default(cuid())
+  qrId           String?
+  eventId        String?
+  // Espace auquel appartient le scan (cloisonnement). Toujours renseigné pour les nouveaux scans.
+  organizationId String?
+  // Opérateur : un agent (userId) OU une plateforme cliente via sa clé API (sourceId)
+  userId         String?
+  sourceId       String?
+  deviceId       String?
+  result         ScanResult
+  offline        Boolean    @default(false)
+  clientId       String?    @unique
+  // Heure du contrôle (peut être ancienne pour un scan hors-ligne synchronisé plus tard)
+  scannedAt      DateTime
+  // Heure de réception par le serveur : ordre stable pour la lecture incrémentale par API
+  createdAt      DateTime   @default(now())
+  metadata       Json?
+  qr             QRCode?    @relation(fields: [qrId], references: [id], onDelete: SetNull)
+  event          Event?     @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  user           User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([eventId, result])
   @@index([deviceId])
   @@index([scannedAt])
+  @@index([organizationId, createdAt])
   @@map("scans")
 }

@@ -15,7 +15,9 @@ export interface ConsumeInput {
   organizationId: string | null;
   token: string;
   eventId?: string;
-  userId: string;
+  /** Opérateur : un agent (userId) ou une plateforme cliente via sa clé API (sourceId) */
+  userId?: string;
+  sourceId?: string;
   deviceId?: string;
   clientId: string; // Idempotency UUID
 }
@@ -133,12 +135,25 @@ function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
-async function replayExistingScan(clientId: string, now: Date) {
+async function replayExistingScan(clientId: string, now: Date, organizationId: string | null) {
   const existingScan = await prisma.scan.findUnique({
     where: { clientId },
     include: { qr: { include: QR_INCLUDE } },
   });
   if (!existingScan) return null;
+
+  // Une clé d'idempotence déjà utilisée dans un autre espace ne révèle rien de son scan
+  if (organizationId !== null && existingScan.organizationId !== organizationId) {
+    return {
+      valid: false,
+      code: 'INVALID' as ScanResult,
+      status: 'BLOCKED' as QRStatus,
+      reusable: false,
+      consumed: false,
+      message: 'Identifiant de requête (clientId) déjà utilisé.',
+      verifiedAt: now.toISOString(),
+    };
+  }
 
   return {
     valid: existingScan.result === 'VALID',
@@ -203,7 +218,7 @@ export const qrService = {
     const now = new Date();
 
     // 1. Idempotency Check: if this clientId was already processed, return existing result
-    const replay = await replayExistingScan(input.clientId, now);
+    const replay = await replayExistingScan(input.clientId, now, input.organizationId);
     if (replay) return replay;
 
     const tokenHash = hashToken(input.token);
@@ -217,7 +232,10 @@ export const qrService = {
 
         const baseScan = {
           clientId: input.clientId,
+          // Pour le propriétaire de la plateforme (aucun espace), le scan suit l'espace du QR
+          organizationId: input.organizationId ?? qr?.source.organizationId ?? null,
           userId: input.userId,
+          sourceId: input.sourceId,
           deviceId: input.deviceId,
           scannedAt: now,
         };
@@ -283,7 +301,7 @@ export const qrService = {
     } catch (error) {
       // Deux requêtes concurrentes avec le même clientId : la seconde rejoue le résultat de la première
       if (isUniqueViolation(error)) {
-        const concurrent = await replayExistingScan(input.clientId, now);
+        const concurrent = await replayExistingScan(input.clientId, now, input.organizationId);
         if (concurrent) return concurrent;
       }
       throw error;
@@ -350,6 +368,7 @@ export const qrService = {
         await tx.scan.create({
           data: {
             clientId: input.clientId,
+            organizationId: input.organizationId ?? qr?.source.organizationId ?? null,
             qrId: qr?.id,
             eventId: qr ? input.eventId || qr.eventId : undefined,
             userId: input.userId,
@@ -379,6 +398,7 @@ export const qrService = {
 
 function formatQRSummary(qr: {
   id: string;
+  externalId?: string | null;
   type: QRType;
   reusable: boolean;
   expiresAt: Date | null;
@@ -387,6 +407,7 @@ function formatQRSummary(qr: {
 }) {
   return {
     id: qr.id,
+    externalId: qr.externalId ?? undefined,
     type: qr.type,
     source: qr.source?.name || 'ScanHub',
     reusable: qr.reusable,

@@ -29,10 +29,10 @@ export default async function OrganizationsPage() {
       FROM "qr_codes" q JOIN "sources" s ON s."id" = q."sourceId"
       GROUP BY s."organizationId"`,
     prisma.$queryRaw<{ organizationId: string; total: bigint }[]>`
-      SELECT u."organizationId", COUNT(sc."id") AS total
-      FROM "scans" sc JOIN "User" u ON u."id" = sc."userId"
-      WHERE u."organizationId" IS NOT NULL
-      GROUP BY u."organizationId"`,
+      SELECT sc."organizationId", COUNT(sc."id") AS total
+      FROM "scans" sc
+      WHERE sc."organizationId" IS NOT NULL
+      GROUP BY sc."organizationId"`,
   ]);
 
   const ticketsByOrg = new Map(ticketCounts.map((r) => [r.organizationId, Number(r.total)]));

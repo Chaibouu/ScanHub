@@ -41,6 +41,8 @@ async function resetDatabase() {
     await prisma.user.deleteMany({ where: { email: { endsWith: "@e2e.scanhub.test" } } });
     // Espaces jetables créés par les tests de cloisonnement (événements et sources en cascade)
     await prisma.organization.deleteMany({ where: { slug: { startsWith: "e2e-" } } });
+    // Événements créés par les tests de l'API développeur (sinon la limite de la formule est atteinte)
+    await prisma.event.deleteMany({ where: { name: { startsWith: "E2E " } } });
   } finally {
     await prisma.$disconnect();
   }
@@ -85,7 +87,13 @@ function run(command, args) {
 
   let failed = 0;
   await resetRateLimits();
-  for (const file of ["api.e2e.mjs", "web.e2e.mjs", "security.e2e.cjs", "tenant.e2e.cjs"]) {
+  for (const file of [
+    "api.e2e.mjs",
+    "web.e2e.mjs",
+    "security.e2e.cjs",
+    "tenant.e2e.cjs",
+    "developer-api.e2e.mjs",
+  ]) {
     console.log(`\n━━ ${file} ━━`);
     if (run("node", [path.join("tests", "e2e", file)]) !== 0) failed++;
     await resetRateLimits();

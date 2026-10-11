@@ -79,10 +79,11 @@ export const scope = {
   qrCodes: (viewer: Viewer): Prisma.QRCodeWhereInput =>
     viewer.organizationId === null ? {} : { source: { organizationId: viewer.organizationId } },
 
-  // Un terminal et un scan appartiennent à l'organisation de leur opérateur
+  // Un terminal appartient à l'organisation de son agent
   devices: (viewer: Viewer): Prisma.DeviceWhereInput =>
     viewer.organizationId === null ? {} : { user: { organizationId: viewer.organizationId } },
 
+  // Un scan porte directement son espace : il peut venir d'un agent ou d'une clé API
   scans: (viewer: Viewer): Prisma.ScanWhereInput =>
-    viewer.organizationId === null ? {} : { user: { organizationId: viewer.organizationId } },
+    viewer.organizationId === null ? {} : { organizationId: viewer.organizationId },
 };

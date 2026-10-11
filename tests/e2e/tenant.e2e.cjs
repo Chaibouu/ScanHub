@@ -75,6 +75,13 @@ const apiLogin = async (email, password) => {
   r = await call('/v1/scans', { headers: A }); ok('A ne voit pas les scans de B', r.s === 200 && !r.j.scans.some((s) => s.event === 'E2E Event B'), '');
   r = await call('/v1/scans', { headers: AB }); ok('B voit ses scans', r.s === 200 && r.j.scans.length >= 1 && r.j.scans.every((s) => s.event !== 'Tech Conference Niger 2026'), r.t.slice(0, 150));
 
+  // ── Même cloisonnement pour l'API développeur (clé API de B)
+  const KB = { 'x-api-key': B_API_KEY };
+  r = await call('/v1/integrations/verify', { method: 'POST', headers: KB, body: { token: 'BADGE_VIP_AMB' } }); ok('cle API de B : billet de A -> INVALID', r.j?.code === 'INVALID', r.t.slice(0, 120));
+  r = await call('/v1/integrations/consume', { method: 'POST', headers: KB, body: { token: 'BADGE_VIP_AMB' } }); ok('cle API de B : ne valide pas un billet de A', r.j?.code === 'INVALID' && r.j?.consumed === false, r.t.slice(0, 120));
+  r = await call('/v1/integrations/events', { headers: KB }); ok('cle API de B : uniquement ses evenements', r.s === 200 && r.j.events.every((e) => e.name !== 'Tech Conference Niger 2026'), r.t.slice(0, 120));
+  r = await call('/v1/integrations/scans', { headers: KB }); ok('cle API de B : uniquement ses scans', r.s === 200 && r.j.scans.length >= 1 && r.j.scans.every((s) => s.eventId === eventB.id || s.eventId === null), r.t.slice(0, 160));
+
   // ── Terminal d'un espace inutilisable par un agent d'un autre espace
   const deviceKeyA = 'dvk_e2e_device_of_org_a';
   await prisma.device.create({ data: { name: 'E2E terminal A', userId: agentA.id, deviceKeyHash: hashApiKey(deviceKeyA), activatedAt: new Date() } });
@@ -113,6 +120,7 @@ const apiLogin = async (email, password) => {
   r = await call('/v1/events', { headers: AB }); ok('espace suspendu : session refusee', r.s === 401, r.s);
   r = await call('/v1/auth/login', { method: 'POST', body: { email: adminB.email, password: B_PASSWORD } }); ok('espace suspendu : connexion refusee', r.s === 403, r.s);
   r = await call('/v1/events', { headers: A }); ok('l espace A n est pas affecte', r.s === 200, r.s);
+  r = await call('/v1/integrations/events', { headers: { 'x-api-key': B_API_KEY } }); ok('espace suspendu : cle API refusee', r.s === 403, r.s);
 
   console.log(`\n${pass} PASS / ${fail} FAIL`);
   await prisma.$disconnect();

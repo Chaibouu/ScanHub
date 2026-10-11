@@ -9,6 +9,20 @@ import { CreateSourceForm } from "@/components/integrations/CreatePartnerForms";
 
 export const dynamic = "force-dynamic";
 
+const API_ENDPOINTS = [
+  { method: "GET", path: "/events", text: "Vos événements (pour obtenir un eventId)" },
+  { method: "POST", path: "/events", text: "Créer un événement" },
+  { method: "POST", path: "/qrs", text: "Créer un QR code (billet, badge, invitation…)" },
+  { method: "POST", path: "/qrs/batch", text: "Créer jusqu'à 500 QR codes en un appel" },
+  { method: "GET", path: "/qrs/:id", text: "Détail d'un code (par identifiant ou par votre référence)" },
+  { method: "GET", path: "/qrs/:id/image", text: "Image du QR code (PNG ou SVG)" },
+  { method: "POST", path: "/qrs/:id/revoke", text: "Révoquer un code" },
+  { method: "POST", path: "/qrs/:id/restore", text: "Rétablir un code révoqué" },
+  { method: "POST", path: "/verify", text: "Vérifier un code sans le consommer" },
+  { method: "POST", path: "/consume", text: "Valider un passage (scan depuis votre application)" },
+  { method: "GET", path: "/scans", text: "Lire les scans / présences, de façon incrémentale" },
+];
+
 export default async function IntegrationsPage() {
   const viewer = await getViewer();
   if (!viewer) redirect("/auth/login");
@@ -128,61 +142,47 @@ export default async function IntegrationsPage() {
         )}
       </div>
 
-      {/* Guide API REST Partenaires */}
+      {/* Aide-mémoire de l'API développeur */}
       <Card className="border-border/40 shadow-sm">
         <CardHeader>
           <CardTitle className="text-base font-bold flex items-center gap-2">
             <Code className="h-4 w-4 text-blue-600" />
-            Endpoints de l'API REST ScanHub v1
+            API développeur — créer et vérifier vos QR codes depuis votre plateforme
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4 text-xs">
-          <div className="p-3 bg-gray-50 dark:bg-gray-900/60 rounded-lg space-y-2 border border-gray-100 dark:border-gray-800">
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-blue-600 text-white font-mono rounded font-semibold text-[10px]">
-                POST
-              </span>
-              <span className="font-mono text-gray-800 dark:text-gray-200">
-                /api/v1/integrations/qrs
-              </span>
-              <span className="text-gray-400 ml-auto">Enregistrer un QR Code (Billet/Badge)</span>
-            </div>
-            <p className="text-gray-500 text-[11px]">
-              Permet aux billetteries de pousser leurs billets vendus pour être vérifiables immédiatement
-              sur les scanners ScanHub.
-            </p>
+        <CardContent className="space-y-3 text-xs">
+          <p className="text-gray-500">
+            Toutes les requêtes portent l'en-tête <code>x-api-key</code> avec votre clé. Adresse de
+            base : <code>/api/v1/integrations</code>
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left">
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {API_ENDPOINTS.map((endpoint) => (
+                  <tr key={endpoint.method + endpoint.path}>
+                    <td className="py-2 pr-3">
+                      <span
+                        className={`rounded px-2 py-0.5 font-mono text-[10px] font-semibold text-white ${
+                          endpoint.method === "GET" ? "bg-emerald-600" : "bg-blue-600"
+                        }`}
+                      >
+                        {endpoint.method}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 font-mono text-gray-800 dark:text-gray-200">
+                      {endpoint.path}
+                    </td>
+                    <td className="py-2 text-gray-500">{endpoint.text}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          <div className="p-3 bg-gray-50 dark:bg-gray-900/60 rounded-lg space-y-2 border border-gray-100 dark:border-gray-800">
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-rose-600 text-white font-mono rounded font-semibold text-[10px]">
-                POST
-              </span>
-              <span className="font-mono text-gray-800 dark:text-gray-200">
-                /api/v1/integrations/qrs/:id/revoke
-              </span>
-              <span className="text-gray-400 ml-auto">Révoquer / Annuler un billet</span>
-            </div>
-            <p className="text-gray-500 text-[11px]">
-              Désactive immédiatement un billet en cas de remboursement, fraude ou annulation.
-            </p>
-          </div>
-
-          <div className="p-3 bg-gray-50 dark:bg-gray-900/60 rounded-lg space-y-2 border border-gray-100 dark:border-gray-800">
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-emerald-600 text-white font-mono rounded font-semibold text-[10px]">
-                GET
-              </span>
-              <span className="font-mono text-gray-800 dark:text-gray-200">
-                /api/v1/sync/pull?eventId=:eventId
-              </span>
-              <span className="text-gray-400 ml-auto">Synchronisation offline</span>
-            </div>
-            <p className="text-gray-500 text-[11px]">
-              Télécharge l'annuaire des billets pour le cache local SQLite des scanners mobiles en cas
-              de coupure réseau.
-            </p>
-          </div>
+          <p className="text-gray-500">
+            Envoyez votre propre référence dans <code>externalId</code> (numéro de badge, de
+            commande…) : si vous renvoyez la même création, ScanHub rend le même code au lieu d'en
+            créer un second.
+          </p>
         </CardContent>
       </Card>
     </div>

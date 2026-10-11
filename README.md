@@ -97,6 +97,28 @@ Un compte `AGENT` ne peut scanner que depuis un terminal activé.
 - `POST /api/v1/sync/push` — remontée des scans hors-ligne. Le serveur **revalide** chaque scan ;
   un billet déjà consommé ailleurs est renvoyé en `CONFLICT`.
 
+### API développeur (`/api/v1/integrations`)
+
+Pour créer et vérifier des QR codes depuis une autre plateforme, avec la seule clé API
+(en-tête `x-api-key`). Tout reste dans l'espace de la clé.
+
+| Méthode | Chemin | Rôle |
+|---------|--------|------|
+| `GET` / `POST` | `/events` | Lister / créer des événements |
+| `POST` | `/qrs` | Créer un code. **Idempotent sur `externalId`** : rejouer rend le même code (`200`, `created: false`) |
+| `POST` | `/qrs/batch` | Jusqu'à 500 codes par appel, même idempotence |
+| `GET` | `/qrs/:id` | Détail (`:id` = identifiant ScanHub ou `externalId`) |
+| `GET` | `/qrs/:id/image` | Image du QR (`?format=png\|svg`, `?size=`) |
+| `POST` | `/qrs/:id/revoke`, `/qrs/:id/restore` | Révoquer / rétablir |
+| `POST` | `/verify` | Vérifier sans consommer |
+| `POST` | `/consume` | Valider un passage (`idempotencyKey` ou en-tête `Idempotency-Key`) |
+| `GET` | `/scans` | Présences, lecture incrémentale par curseur (`?after=`) |
+
+- ScanHub génère le code (128 bits aléatoires). Un client peut fournir le sien (`token`), à
+  condition qu'il soit long et aléatoire ; les valeurs devinables sont refusées (`422`).
+- Limite : 600 requêtes par minute et par clé.
+- Scénarios complets : `tests/e2e/developer-api.e2e.mjs`.
+
 ### Clés API partenaires
 Générées depuis **Partenaires (API)** (bouton « Générer / Régénérer la clé API »). Seul le hash est
 stocké : la clé n'est visible qu'au moment de sa génération.
