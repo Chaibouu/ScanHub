@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import { hashToken } from '@/lib/crypto';
+import { webhookService } from '@/modules/webhooks/webhookService';
 import { Prisma, ScanResult, QRStatus, QRType } from '@prisma/client';
 
 export interface VerifyInput {
@@ -222,9 +223,10 @@ export const qrService = {
     if (replay) return replay;
 
     const tokenHash = hashToken(input.token);
+    let createdScanId: string | null = null;
 
     try {
-      return await prisma.$transaction(async (tx) => {
+      const result = await prisma.$transaction(async (tx) => {
         const qr = await tx.qRCode.findFirst({
           where: qrWhere(tokenHash, input.organizationId),
           include: QR_INCLUDE,
@@ -241,9 +243,10 @@ export const qrService = {
         };
 
         if (!qr) {
-          await tx.scan.create({
+          const scan = await tx.scan.create({
             data: { ...baseScan, result: 'INVALID' },
           });
+          createdScanId = scan.id;
 
           return {
             valid: false,
@@ -277,7 +280,7 @@ export const qrService = {
 
         const consumed = evaluation.code === 'VALID';
 
-        await tx.scan.create({
+        const scan = await tx.scan.create({
           data: {
             ...baseScan,
             qrId: qr.id,
@@ -286,6 +289,7 @@ export const qrService = {
             ...(qr.metadata ? { metadata: qr.metadata as Prisma.InputJsonValue } : {}),
           },
         });
+        createdScanId = scan.id;
 
         return {
           valid: consumed,
@@ -298,6 +302,10 @@ export const qrService = {
           verifiedAt: now.toISOString(),
         };
       });
+
+      // Après validation de la transaction : jamais de notification pour un scan annulé
+      if (createdScanId) webhookService.emitScanCreated(createdScanId);
+      return result;
     } catch (error) {
       // Deux requêtes concurrentes avec le même clientId : la seconde rejoue le résultat de la première
       if (isUniqueViolation(error)) {
@@ -326,9 +334,10 @@ export const qrService = {
     }
 
     const tokenHash = hashToken(input.token);
+    let createdScanId: string | null = null;
 
     try {
-      return await prisma.$transaction(async (tx) => {
+      const outcome = await prisma.$transaction(async (tx) => {
         const qr = await tx.qRCode.findFirst({
           where: qrWhere(tokenHash, input.organizationId),
           include: QR_INCLUDE,
@@ -365,7 +374,7 @@ export const qrService = {
 
         const hasConflict = finalResult !== input.claimedResult;
 
-        await tx.scan.create({
+        const scan = await tx.scan.create({
           data: {
             clientId: input.clientId,
             organizationId: input.organizationId ?? qr?.source.organizationId ?? null,
@@ -383,10 +392,15 @@ export const qrService = {
           },
         });
 
+        createdScanId = scan.id;
+
         return hasConflict
           ? { status: 'CONFLICT' as const, result: finalResult, message: conflictMessage }
           : { status: 'ACCEPTED' as const, result: finalResult };
       });
+
+      if (createdScanId) webhookService.emitScanCreated(createdScanId);
+      return outcome;
     } catch (error) {
       if (isUniqueViolation(error)) {
         return { status: 'DUPLICATE', message: 'Ce scan est déjà synchronisé sur le serveur.' };

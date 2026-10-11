@@ -4,7 +4,10 @@ import { getViewer, scope } from "@/lib/tenant";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Code } from "lucide-react";
+import Link from "next/link";
 import { RotateApiKeyButton } from "@/components/integrations/RotateApiKeyButton";
+import { WebhooksPanel } from "@/components/integrations/WebhooksPanel";
+import { webhookService } from "@/modules/webhooks/webhookService";
 import { CreateSourceForm } from "@/components/integrations/CreatePartnerForms";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +49,10 @@ export default async function IntegrationsPage() {
       orderBy: { name: "asc" },
     }),
   ]);
+
+  const webhooks = viewer.organizationId
+    ? await webhookService.list(viewer.organizationId)
+    : [];
 
   return (
     <div className="space-y-6">
@@ -142,6 +149,24 @@ export default async function IntegrationsPage() {
         )}
       </div>
 
+      {/* Webhooks : uniquement dans un espace (le propriétaire de la plateforme n'en a pas) */}
+      {viewer.organizationId && (
+        <Card className="border-border/40 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold">
+              Webhooks — recevoir chaque scan sur votre serveur
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-gray-500">
+              ScanHub appelle votre adresse dès qu'un scan est enregistré. Utile pour remplir
+              automatiquement vos présences.
+            </p>
+            <WebhooksPanel webhooks={webhooks} />
+          </CardContent>
+        </Card>
+      )}
+
       {/* Aide-mémoire de l'API développeur */}
       <Card className="border-border/40 shadow-sm">
         <CardHeader>
@@ -183,6 +208,9 @@ export default async function IntegrationsPage() {
             commande…) : si vous renvoyez la même création, ScanHub rend le même code au lieu d'en
             créer un second.
           </p>
+          <Link href="/docs" target="_blank" className="inline-block text-blue-600 underline">
+            Documentation complète de l'API →
+          </Link>
         </CardContent>
       </Card>
     </div>

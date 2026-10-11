@@ -33,6 +33,10 @@ const FEATURES = [
     text: "Entrées validées, refus, agents et terminaux : tout est visible dans votre tableau de bord et exportable.",
   },
   {
+    title: "Une API pour votre plateforme",
+    text: "Créez vos QR codes depuis votre site ou votre billetterie, et recevez chaque scan en direct.",
+  },
+  {
     title: "Vos téléphones, sous contrôle",
     text: "Chaque terminal est activé par un code à usage unique et peut être bloqué en un clic s'il est perdu.",
   },
@@ -49,6 +53,9 @@ export default function Home() {
           {appConfig.appName}
         </Link>
         <nav className="flex items-center gap-3">
+          <Link href="/docs">
+            <Button variant="ghost">API</Button>
+          </Link>
           <Link href="/auth/login">
             <Button variant="ghost">Se connecter</Button>
           </Link>

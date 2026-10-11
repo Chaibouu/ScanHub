@@ -23,7 +23,7 @@ const appConfig = {
       pass: mailPassword,
     },
   },
-  publicRoutes: ["/"],
+  publicRoutes: ["/", "/docs"],
   defaultLoginRedirect: "/dashboard",
   primaryColor: "#2563EB",
 

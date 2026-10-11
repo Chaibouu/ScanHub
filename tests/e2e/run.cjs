@@ -33,6 +33,7 @@ async function resetDatabase() {
   }
   const prisma = new PrismaClient();
   try {
+    await prisma.webhookEndpoint.deleteMany({});
     await prisma.scan.deleteMany({});
     await prisma.device.deleteMany({});
     await prisma.qRCode.deleteMany({
@@ -93,6 +94,7 @@ function run(command, args) {
     "security.e2e.cjs",
     "tenant.e2e.cjs",
     "developer-api.e2e.mjs",
+    "webhooks.e2e.mjs",
   ]) {
     console.log(`\n━━ ${file} ━━`);
     if (run("node", [path.join("tests", "e2e", file)]) !== 0) failed++;

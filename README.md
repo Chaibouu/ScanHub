@@ -119,6 +119,22 @@ Pour créer et vérifier des QR codes depuis une autre plateforme, avec la seule
 - Limite : 600 requêtes par minute et par clé.
 - Scénarios complets : `tests/e2e/developer-api.e2e.mjs`.
 
+### Webhooks
+
+ScanHub appelle l'adresse du client à chaque scan enregistré (événement `scan.created`).
+Gestion dans **Billetteries (API)** ou via `GET|POST /webhooks`, `GET|DELETE /webhooks/:id`,
+`POST /webhooks/:id/test`.
+
+- Signature : en-tête `ScanHub-Signature: t=<horodatage>,v1=<HMAC-SHA256 de "t.corps">`, avec le
+  secret `whsec_…` donné une seule fois à la création.
+- Nouvelles tentatives : 1 min, 5 min, 30 min, 2 h, 12 h. Chaque envoi est tracé (`WebhookDelivery`).
+- En production : HTTPS obligatoire, adresses internes refusées, redirections non suivies.
+- **À planifier chez l'hébergeur** : appeler `/api/cron/webhooks` chaque minute avec
+  `Authorization: Bearer $CRON_SECRET`. Sans cela, les nouvelles tentatives ne partent qu'à
+  l'occasion des scans suivants du même espace.
+
+La documentation publique destinée aux clients est servie sur `/docs`.
+
 ### Clés API partenaires
 Générées depuis **Partenaires (API)** (bouton « Générer / Régénérer la clé API »). Seul le hash est
 stocké : la clé n'est visible qu'au moment de sa génération.

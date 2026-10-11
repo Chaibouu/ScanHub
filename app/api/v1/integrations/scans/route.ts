@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { authenticateIntegration } from '@/lib/integrationAuth';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { Prisma, ScanResult } from '@prisma/client';
+import { formatScanForApi, SCAN_API_INCLUDE } from '@/modules/integrations/scanFormat';
 
 const MAX_PAGE_SIZE = 500;
 
@@ -50,35 +51,12 @@ export async function GET(req: NextRequest) {
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       take: limit + 1,
       ...(after ? { cursor: { id: after }, skip: 1 } : {}),
-      include: {
-        qr: { select: { id: true, externalId: true, type: true, metadata: true } },
-        user: { select: { name: true, firstName: true } },
-      },
+      include: SCAN_API_INCLUDE,
     });
 
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
-
-    const scans = page.map((scan) => {
-      const meta = ((scan.metadata ?? scan.qr?.metadata) as Record<string, unknown> | null) ?? {};
-      return {
-        id: scan.id,
-        result: scan.result,
-        scannedAt: scan.scannedAt.toISOString(),
-        receivedAt: scan.createdAt.toISOString(),
-        offline: scan.offline,
-        eventId: scan.eventId,
-        qr: scan.qr
-          ? { id: scan.qr.id, externalId: scan.qr.externalId ?? undefined, type: scan.qr.type }
-          : null,
-        holderName: (meta.holderName as string | undefined) ?? undefined,
-        // Qui a contrôlé : un agent avec l'application ScanHub, ou une plateforme via l'API
-        operator: scan.userId
-          ? { type: 'agent' as const, name: scan.user?.name || scan.user?.firstName || 'Agent' }
-          : { type: 'api' as const },
-        deviceId: scan.deviceId,
-      };
-    });
+    const scans = page.map(formatScanForApi);
 
     return jsonSuccess({
       scans,

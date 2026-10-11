@@ -227,9 +227,10 @@ model Organization {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  users   User[]
-  sources Source[]
-  events  Event[]
+  users            User[]
+  webhookEndpoints WebhookEndpoint[]
+  sources          Source[]
+  events           Event[]
 
   @@map("organizations")
 }
@@ -337,4 +338,47 @@ model Scan {
   @@index([scannedAt])
   @@index([organizationId, createdAt])
   @@map("scans")
+}
+
+// ==============================================================================
+// WEBHOOKS — notifications envoyées aux plateformes clientes
+// ==============================================================================
+
+model WebhookEndpoint {
+  id                  String       @id @default(cuid())
+  organizationId      String
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  url                 String
+  // Secret de signature, chiffré AES-256-GCM (il faut le relire pour signer chaque envoi)
+  secretEnc           String       @db.Text
+  isActive            Boolean      @default(true)
+  // Remis à zéro à chaque succès ; l'adresse est désactivée après trop d'échecs d'affilée
+  consecutiveFailures Int          @default(0)
+  lastSuccessAt       DateTime?
+  lastFailureAt       DateTime?
+  createdAt           DateTime     @default(now())
+
+  deliveries WebhookDelivery[]
+
+  @@index([organizationId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id             String          @id @default(cuid())
+  endpointId     String
+  endpoint       WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  event          String // "scan.created" | "ping"
+  payload        Json
+  status         String          @default("PENDING") // PENDING | SUCCESS | FAILED
+  attempts       Int             @default(0)
+  nextAttemptAt  DateTime?
+  lastStatusCode Int?
+  lastError      String?
+  createdAt      DateTime        @default(now())
+  deliveredAt    DateTime?
+
+  @@index([status, nextAttemptAt])
+  @@index([endpointId, createdAt])
+  @@map("webhook_deliveries")
 }
