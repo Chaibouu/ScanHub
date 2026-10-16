@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   resetUserPasswordAction,
   setUserActiveAction,
@@ -23,6 +24,7 @@ export function UserRowActions({ userId, role, isActive, assignableRoles }: User
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   const run = (
     action: () => Promise<{ error: string } | { success: true; tempPassword?: string }>,
@@ -45,10 +47,15 @@ export function UserRowActions({ userId, role, isActive, assignableRoles }: User
     run(() => updateUserRoleAction(userId, nextRole), "Rôle mis à jour.");
   };
 
-  const toggleActive = () => {
+  const toggleActive = async () => {
     if (
       isActive &&
-      !window.confirm("Désactiver ce compte ? Toutes ses sessions seront fermées immédiatement.")
+      !(await confirm({
+        title: "Désactiver ce compte ?",
+        description: "Toutes ses sessions seront fermées immédiatement, sur le web comme sur mobile.",
+        confirmLabel: "Désactiver",
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -58,10 +65,13 @@ export function UserRowActions({ userId, role, isActive, assignableRoles }: User
     );
   };
 
-  const resetPassword = () => {
-    if (!window.confirm("Générer un nouveau mot de passe ? L'ancien cessera de fonctionner.")) {
-      return;
-    }
+  const resetPassword = async () => {
+    const confirmed = await confirm({
+      title: "Générer un nouveau mot de passe ?",
+      description: "L'ancien cessera de fonctionner immédiatement.",
+      confirmLabel: "Générer",
+    });
+    if (!confirmed) return;
     run(() => resetUserPasswordAction(userId), "Mot de passe réinitialisé.");
   };
 
@@ -100,6 +110,7 @@ export function UserRowActions({ userId, role, isActive, assignableRoles }: User
           onDismiss={() => setTempPassword(null)}
         />
       )}
+      {dialog}
     </div>
   );
 }

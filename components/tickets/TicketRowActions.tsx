@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { setTicketRevokedAction } from "@/actions/tickets";
 
 interface TicketRowActionsProps {
@@ -20,9 +21,20 @@ export function TicketRowActions({ eventId, ticketId, status, hasQr, canManage }
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const isRevoked = status === "REVOKED";
+  const { confirm, dialog } = useConfirm();
 
-  const toggleRevoked = () => {
-    if (!isRevoked && !window.confirm("Révoquer ce billet ? Il sera refusé à l'entrée.")) return;
+  const toggleRevoked = async () => {
+    if (
+      !isRevoked &&
+      !(await confirm({
+        title: "Révoquer ce billet ?",
+        description: "Il sera refusé à l'entrée. Vous pourrez le rétablir plus tard.",
+        confirmLabel: "Révoquer",
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
     startTransition(async () => {
       const result = await setTicketRevokedAction(ticketId, !isRevoked);
       if ("error" in result) {
@@ -53,6 +65,7 @@ export function TicketRowActions({ eventId, ticketId, status, hasQr, canManage }
           {isRevoked ? "Rétablir" : "Révoquer"}
         </Button>
       )}
+      {dialog}
     </div>
   );
 }

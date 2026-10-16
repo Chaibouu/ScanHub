@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { resetDeviceActivationAction, setDeviceActiveAction } from "@/actions/scanhub-admin";
 import { SecretReveal } from "@/components/devices/SecretReveal";
 
@@ -16,6 +17,7 @@ export function DeviceRowActions({ deviceId, active }: DeviceRowActionsProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [activationCode, setActivationCode] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   const toggle = () => {
     startTransition(async () => {
@@ -29,10 +31,14 @@ export function DeviceRowActions({ deviceId, active }: DeviceRowActionsProps) {
     });
   };
 
-  const resetCode = () => {
-    if (!window.confirm("Générer un nouveau code ? La clé actuelle du terminal sera invalidée.")) {
-      return;
-    }
+  const resetCode = async () => {
+    const confirmed = await confirm({
+      title: "Générer un nouveau code ?",
+      description:
+        "La clé actuelle du terminal sera invalidée : le téléphone devra être réactivé avec le nouveau code.",
+      confirmLabel: "Générer le code",
+    });
+    if (!confirmed) return;
     startTransition(async () => {
       const result = await resetDeviceActivationAction(deviceId);
       if ("error" in result) {
@@ -66,6 +72,7 @@ export function DeviceRowActions({ deviceId, active }: DeviceRowActionsProps) {
           onDismiss={() => setActivationCode(null)}
         />
       )}
+      {dialog}
     </div>
   );
 }

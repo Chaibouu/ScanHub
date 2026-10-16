@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import {
   createWebhookAction,
@@ -50,6 +51,7 @@ export function WebhooksPanel({ webhooks }: { webhooks: WebhookView[] }) {
   const [isPending, startTransition] = useTransition();
   const [url, setUrl] = useState("");
   const [secret, setSecret] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
   const run = (
     action: () => Promise<{ error: string } | { success: true; secret?: string }>,
@@ -76,8 +78,14 @@ export function WebhooksPanel({ webhooks }: { webhooks: WebhookView[] }) {
     }, "Adresse ajoutée.");
   };
 
-  const handleDelete = (id: string) => {
-    if (!window.confirm("Supprimer cette adresse ? Elle ne recevra plus aucun scan.")) return;
+  const handleDelete = async (id: string) => {
+    const confirmed = await confirm({
+      title: "Supprimer cette adresse ?",
+      description: "Elle ne recevra plus aucun scan.",
+      confirmLabel: "Supprimer",
+      destructive: true,
+    });
+    if (!confirmed) return;
     run(() => deleteWebhookAction(id), "Adresse supprimée.");
   };
 
@@ -167,6 +175,7 @@ export function WebhooksPanel({ webhooks }: { webhooks: WebhookView[] }) {
           })}
         </ul>
       )}
+      {dialog}
     </div>
   );
 }

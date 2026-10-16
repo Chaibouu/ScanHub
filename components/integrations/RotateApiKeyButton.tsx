@@ -3,17 +3,25 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { rotateSourceApiKeyAction } from "@/actions/scanhub-admin";
 import { SecretReveal } from "@/components/devices/SecretReveal";
 
 export function RotateApiKeyButton({ sourceId, hasKey }: { sourceId: string; hasKey: boolean }) {
   const [isPending, startTransition] = useTransition();
   const [apiKey, setApiKey] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirm();
 
-  const rotate = () => {
+  const rotate = async () => {
     if (
       hasKey &&
-      !window.confirm("Régénérer la clé ? L'ancienne cessera de fonctionner immédiatement.")
+      !(await confirm({
+        title: "Régénérer la clé API ?",
+        description:
+          "L'ancienne clé cessera de fonctionner immédiatement : la plateforme qui l'utilise devra être mise à jour.",
+        confirmLabel: "Régénérer",
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -39,6 +47,7 @@ export function RotateApiKeyButton({ sourceId, hasKey }: { sourceId: string; has
           onDismiss={() => setApiKey(null)}
         />
       )}
+      {dialog}
     </div>
   );
 }

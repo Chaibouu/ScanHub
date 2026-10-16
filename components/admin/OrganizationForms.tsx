@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import {
   createOrganizationAction,
@@ -116,6 +117,7 @@ export function OrganizationRowActions({
 }: OrganizationRowActionsProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const { confirm, dialog } = useConfirm();
 
   const run = (action: () => Promise<{ error: string } | { success: true }>, message: string) => {
     startTransition(async () => {
@@ -129,10 +131,15 @@ export function OrganizationRowActions({
     });
   };
 
-  const toggleActive = () => {
+  const toggleActive = async () => {
     if (
       isActive &&
-      !window.confirm("Suspendre cet espace ? Tous ses membres seront déconnectés immédiatement.")
+      !(await confirm({
+        title: "Suspendre cet espace ?",
+        description: "Tous ses membres seront déconnectés immédiatement et ne pourront plus scanner.",
+        confirmLabel: "Suspendre",
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -167,6 +174,7 @@ export function OrganizationRowActions({
       >
         {isActive ? "Suspendre" : "Réactiver"}
       </Button>
+      {dialog}
     </div>
   );
 }
