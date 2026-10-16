@@ -4,7 +4,9 @@ datasource db {
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Relations chargées par jointure : une requête au lieu d'une par relation incluse
+  previewFeatures = ["relationJoins"]
 }
 
 enum UserRole {

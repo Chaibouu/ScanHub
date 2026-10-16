@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
 import { qrService } from '@/modules/qr/qrService';
-import { deviceService } from '@/modules/devices/deviceService';
-import { authorizeUser } from '@/lib/rbac';
+import { authorizeScanRequest } from '@/lib/scanAuth';
 import { toViewer } from '@/lib/tenant';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { logger } from '@/lib/logger';
@@ -38,15 +37,10 @@ type PushStatus = 'ACCEPTED' | 'DUPLICATE' | 'CONFLICT' | 'REJECTED';
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await authorizeUser(req);
-    if (!auth.authorized) {
-      return jsonError(auth.error, auth.status);
-    }
-
-    const deviceCheck = await deviceService.checkForScan(req, auth.user);
-    if (!deviceCheck.ok) {
-      return jsonError(deviceCheck.error, deviceCheck.status, { code: 'DEVICE_BLOCKED' });
-    }
+    // Session de l'agent et terminal vérifiés en parallèle
+    const scanAuth = await authorizeScanRequest(req);
+    if (!scanAuth.ok) return scanAuth.response;
+    const { user, deviceId } = scanAuth;
 
     const body = await req.json().catch(() => null);
     const parsed = pushSchema.safeParse(body);
@@ -56,7 +50,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { scans } = parsed.data;
-    const { organizationId } = toViewer(auth.user);
+    const { organizationId } = toViewer(user);
     const results: Array<{ clientId: string; status: PushStatus; result?: string; message?: string }> = [];
     const counters: Record<PushStatus, number> = { ACCEPTED: 0, DUPLICATE: 0, CONFLICT: 0, REJECTED: 0 };
     const latestAllowed = Date.now() + CLOCK_SKEW_MS;
@@ -73,8 +67,8 @@ export async function POST(req: NextRequest) {
           token: scanItem.token,
           clientId: scanItem.clientId,
           eventId: scanItem.eventId,
-          userId: auth.user.id,
-          deviceId: deviceCheck.device?.id,
+          userId: user.id,
+          deviceId,
           claimedResult: scanItem.result,
           scannedAt,
         });

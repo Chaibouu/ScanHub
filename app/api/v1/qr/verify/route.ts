@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
 import { qrService } from '@/modules/qr/qrService';
-import { deviceService } from '@/modules/devices/deviceService';
-import { authorizeUser } from '@/lib/rbac';
+import { authorizeScanRequest } from '@/lib/scanAuth';
 import { toViewer } from '@/lib/tenant';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { z } from 'zod';
@@ -14,15 +13,10 @@ const verifySchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await authorizeUser(req);
-    if (!auth.authorized) {
-      return jsonError(auth.error, auth.status);
-    }
-
-    const deviceCheck = await deviceService.checkForScan(req, auth.user);
-    if (!deviceCheck.ok) {
-      return jsonError(deviceCheck.error, deviceCheck.status, { code: 'DEVICE_BLOCKED' });
-    }
+    // Session de l'agent et terminal vérifiés en parallèle
+    const scanAuth = await authorizeScanRequest(req);
+    if (!scanAuth.ok) return scanAuth.response;
+    const { user } = scanAuth;
 
     const body = await req.json().catch(() => null);
     const parsed = verifySchema.safeParse(body);
@@ -33,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     const result = await qrService.verify({
       ...parsed.data,
-      organizationId: toViewer(auth.user).organizationId,
+      organizationId: toViewer(user).organizationId,
     });
     return jsonSuccess(result);
   } catch (error) {

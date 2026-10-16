@@ -29,6 +29,13 @@ function formatDevice(device: Device) {
   };
 }
 
+export interface DeviceLookup {
+  provided: boolean;
+  device: Device | null;
+  /** Espace auquel appartient le terminal (celui de son agent) */
+  organizationId: string | null;
+}
+
 export type DeviceCheck =
   | { ok: true; device: Device | null }
   | { ok: false; status: 403; error: string };
@@ -133,12 +140,7 @@ export const deviceService = {
   },
 
   /** Résout le terminal à partir de l'en-tête x-device-key (null si absent ou inconnu). */
-  async findByRequest(request: Request): Promise<{
-    provided: boolean;
-    device: Device | null;
-    /** Espace auquel appartient le terminal (celui de son agent) */
-    organizationId: string | null;
-  }> {
+  async findByRequest(request: Request): Promise<DeviceLookup> {
     const deviceKey = request.headers.get(DEVICE_KEY_HEADER)?.trim();
     if (!deviceKey) return { provided: false, device: null, organizationId: null };
 
@@ -165,8 +167,14 @@ export const deviceService = {
    *   toléré pour les administrateurs.
    */
   async checkForScan(request: Request, user: User): Promise<DeviceCheck> {
-    const { provided, device, organizationId } = await this.findByRequest(request);
+    return this.evaluateForScan(await this.findByRequest(request), user);
+  },
 
+  /** Même contrôle, à partir d'un terminal déjà résolu (recherche lancée en parallèle de l'authentification). */
+  evaluateForScan(
+    { provided, device, organizationId }: DeviceLookup,
+    user: User
+  ): DeviceCheck {
     if (provided) {
       // Un terminal ne sert que dans l'espace qui l'a activé
       const sameSpace = user.role === 'SUPER_ADMIN' || organizationId === user.organizationId;

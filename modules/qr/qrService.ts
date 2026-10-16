@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma';
 import { hashToken } from '@/lib/crypto';
+import { newId } from '@/lib/ids';
 import { webhookService } from '@/modules/webhooks/webhookService';
 import { Prisma, ScanResult, QRStatus, QRType } from '@prisma/client';
 
@@ -133,7 +134,12 @@ function describe(qr: QRWithRelations) {
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  // P2002 : requête Prisma ; P2010 + 23505 : requête SQL brute
+  return (
+    error.code === 'P2002' ||
+    (error.code === 'P2010' && (error.meta as { code?: string } | undefined)?.code === '23505')
+  );
 }
 
 async function replayExistingScan(clientId: string, now: Date, organizationId: string | null) {
@@ -214,103 +220,111 @@ export const qrService = {
    *
    * Le passage ACTIVE → USED se fait par un UPDATE conditionnel : si deux terminaux
    * scannent le même billet au même instant, un seul obtient VALID.
+   *
+   * Chemin le plus court possible (l'agent attend, billet à la main) : une lecture du QR,
+   * puis une seule requête qui consomme le billet et enregistre le scan. Un clientId déjà
+   * traité (renvoi après une coupure réseau) est détecté par la contrainte d'unicité.
    */
   async consume(input: ConsumeInput) {
     const now = new Date();
-
-    // 1. Idempotency Check: if this clientId was already processed, return existing result
-    const replay = await replayExistingScan(input.clientId, now, input.organizationId);
-    if (replay) return replay;
-
     const tokenHash = hashToken(input.token);
-    let createdScanId: string | null = null;
 
     try {
-      const result = await prisma.$transaction(async (tx) => {
-        const qr = await tx.qRCode.findFirst({
-          where: qrWhere(tokenHash, input.organizationId),
-          include: QR_INCLUDE,
-        });
+      const qr = await prisma.qRCode.findFirst({
+        where: qrWhere(tokenHash, input.organizationId),
+        include: QR_INCLUDE,
+      });
 
-        const baseScan = {
-          clientId: input.clientId,
-          // Pour le propriétaire de la plateforme (aucun espace), le scan suit l'espace du QR
-          organizationId: input.organizationId ?? qr?.source.organizationId ?? null,
-          userId: input.userId,
-          sourceId: input.sourceId,
-          deviceId: input.deviceId,
-          scannedAt: now,
+      const baseScan = {
+        clientId: input.clientId,
+        // Pour le propriétaire de la plateforme (aucun espace), le scan suit l'espace du QR
+        organizationId: input.organizationId ?? qr?.source.organizationId ?? null,
+        userId: input.userId,
+        sourceId: input.sourceId,
+        deviceId: input.deviceId,
+        scannedAt: now,
+      };
+
+      if (!qr) {
+        const scan = await prisma.scan.create({ data: { ...baseScan, result: 'INVALID' } });
+        webhookService.emitScanCreated(scan.id);
+
+        return {
+          valid: false,
+          code: 'INVALID' as ScanResult,
+          status: 'BLOCKED' as QRStatus,
+          reusable: false,
+          consumed: false,
+          message: 'Code inconnu lors de la tentative de consommation.',
+          verifiedAt: now.toISOString(),
         };
+      }
 
-        if (!qr) {
-          const scan = await tx.scan.create({
-            data: { ...baseScan, result: 'INVALID' },
-          });
-          createdScanId = scan.id;
+      let evaluation = evaluateQR(qr, { eventId: input.eventId, at: now });
+      const eventId = input.eventId || qr.eventId;
+      let scanId: string;
 
-          return {
-            valid: false,
-            code: 'INVALID' as ScanResult,
-            status: 'BLOCKED' as QRStatus,
-            reusable: false,
-            consumed: false,
-            message: 'Code inconnu lors de la tentative de consommation.',
-            verifiedAt: now.toISOString(),
+      if (evaluation.code === 'VALID' && !qr.reusable) {
+        // Transition ACTIVE -> USED et enregistrement du scan en une seule instruction atomique
+        scanId = newId();
+        const metadata = qr.metadata ? JSON.stringify(qr.metadata) : null;
+        // Les colonnes DateTime de Prisma sont en UTC sans fuseau : conversion explicite,
+        // sinon PostgreSQL applique le fuseau de la session
+        const at = Prisma.sql`(${now}::timestamptz AT TIME ZONE 'UTC')`;
+        const [row] = await prisma.$queryRaw<{ result: ScanResult }[]>`
+          WITH consumed AS (
+            UPDATE "qr_codes"
+               SET "status" = 'USED'::"QRStatus", "usedAt" = ${at}, "updatedAt" = ${at}
+             WHERE "id" = ${qr.id} AND "status" = 'ACTIVE'::"QRStatus"
+            RETURNING "id"
+          )
+          INSERT INTO "scans" ("id", "qrId", "eventId", "organizationId", "userId", "sourceId",
+                               "deviceId", "result", "offline", "clientId", "scannedAt", "createdAt", "metadata")
+          SELECT ${scanId}, ${qr.id}, ${eventId}, ${baseScan.organizationId}, ${input.userId ?? null},
+                 ${input.sourceId ?? null}, ${input.deviceId ?? null},
+                 (CASE WHEN EXISTS (SELECT 1 FROM consumed) THEN 'VALID' ELSE 'ALREADY_USED' END)::"ScanResult",
+                 false, ${input.clientId}, ${at}, ${at}, ${metadata}::jsonb
+          RETURNING "result"`;
+
+        if (row?.result !== 'VALID') {
+          // Un autre terminal vient de consommer ce billet
+          evaluation = {
+            code: 'ALREADY_USED',
+            status: 'USED',
+            message: 'Ce billet vient d’être validé sur un autre terminal.',
           };
         }
-
-        let evaluation = evaluateQR(qr, { eventId: input.eventId, at: now });
-
-        // 2. Transition atomique ACTIVE -> USED pour les billets à usage unique
-        if (evaluation.code === 'VALID' && !qr.reusable) {
-          const { count } = await tx.qRCode.updateMany({
-            where: { id: qr.id, status: 'ACTIVE' },
-            data: { status: 'USED', usedAt: now },
-          });
-
-          if (count === 0) {
-            // Un autre terminal vient de consommer ce billet
-            evaluation = {
-              code: 'ALREADY_USED',
-              status: 'USED',
-              message: 'Ce billet vient d’être validé sur un autre terminal.',
-            };
-          }
-        }
-
-        const consumed = evaluation.code === 'VALID';
-
-        const scan = await tx.scan.create({
+      } else {
+        const scan = await prisma.scan.create({
           data: {
             ...baseScan,
             qrId: qr.id,
-            eventId: input.eventId || qr.eventId,
+            eventId,
             result: evaluation.code,
             ...(qr.metadata ? { metadata: qr.metadata as Prisma.InputJsonValue } : {}),
           },
         });
-        createdScanId = scan.id;
+        scanId = scan.id;
+      }
 
-        return {
-          valid: consumed,
-          code: evaluation.code,
-          status: consumed && !qr.reusable ? ('USED' as QRStatus) : evaluation.status,
-          consumed,
-          ...(consumed ? { consumedAt: now.toISOString() } : {}),
-          message: consumed ? 'Entrée enregistrée et validée avec succès.' : evaluation.message,
-          ...describe(qr),
-          verifiedAt: now.toISOString(),
-        };
-      });
+      webhookService.emitScanCreated(scanId);
 
-      // Après validation de la transaction : jamais de notification pour un scan annulé
-      if (createdScanId) webhookService.emitScanCreated(createdScanId);
-      return result;
+      const consumed = evaluation.code === 'VALID';
+      return {
+        valid: consumed,
+        code: evaluation.code,
+        status: consumed && !qr.reusable ? ('USED' as QRStatus) : evaluation.status,
+        consumed,
+        ...(consumed ? { consumedAt: now.toISOString() } : {}),
+        message: consumed ? 'Entrée enregistrée et validée avec succès.' : evaluation.message,
+        ...describe(qr),
+        verifiedAt: now.toISOString(),
+      };
     } catch (error) {
-      // Deux requêtes concurrentes avec le même clientId : la seconde rejoue le résultat de la première
+      // clientId déjà traité (renvoi, ou requêtes concurrentes) : on rejoue le premier résultat
       if (isUniqueViolation(error)) {
-        const concurrent = await replayExistingScan(input.clientId, now, input.organizationId);
-        if (concurrent) return concurrent;
+        const replay = await replayExistingScan(input.clientId, now, input.organizationId);
+        if (replay) return replay;
       }
       throw error;
     }

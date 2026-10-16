@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server';
 import { qrService } from '@/modules/qr/qrService';
-import { deviceService } from '@/modules/devices/deviceService';
-import { authorizeUser } from '@/lib/rbac';
+import { authorizeScanRequest } from '@/lib/scanAuth';
 import { toViewer } from '@/lib/tenant';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 import { z } from 'zod';
@@ -18,15 +17,10 @@ const consumeSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await authorizeUser(req);
-    if (!auth.authorized) {
-      return jsonError(auth.error, auth.status);
-    }
-
-    const deviceCheck = await deviceService.checkForScan(req, auth.user);
-    if (!deviceCheck.ok) {
-      return jsonError(deviceCheck.error, deviceCheck.status, { code: 'DEVICE_BLOCKED' });
-    }
+    // Session de l'agent et terminal vérifiés en parallèle
+    const scanAuth = await authorizeScanRequest(req);
+    if (!scanAuth.ok) return scanAuth.response;
+    const { user, deviceId } = scanAuth;
 
     const body = await req.json().catch(() => null);
     const parsed = consumeSchema.safeParse(body);
@@ -37,12 +31,12 @@ export async function POST(req: NextRequest) {
 
     // L'opérateur et le terminal viennent toujours de l'authentification, jamais du corps de la requête
     const result = await qrService.consume({
-      organizationId: toViewer(auth.user).organizationId,
+      organizationId: toViewer(user).organizationId,
       token: parsed.data.token,
       eventId: parsed.data.eventId,
       clientId: parsed.data.clientId,
-      userId: auth.user.id,
-      deviceId: deviceCheck.device?.id,
+      userId: user.id,
+      deviceId,
     });
 
     return jsonSuccess(result);

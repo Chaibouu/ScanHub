@@ -1,21 +1,15 @@
 import { NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
-import { deviceService } from '@/modules/devices/deviceService';
-import { authorizeUser } from '@/lib/rbac';
+import { authorizeScanRequest } from '@/lib/scanAuth';
 import { scope, toViewer } from '@/lib/tenant';
 import { jsonSuccess, jsonError, jsonServerError } from '@/lib/response';
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await authorizeUser(req);
-    if (!auth.authorized) {
-      return jsonError(auth.error, auth.status);
-    }
-
-    const deviceCheck = await deviceService.checkForScan(req, auth.user);
-    if (!deviceCheck.ok) {
-      return jsonError(deviceCheck.error, deviceCheck.status, { code: 'DEVICE_BLOCKED' });
-    }
+    // Session de l'agent et terminal vérifiés en parallèle
+    const scanAuth = await authorizeScanRequest(req);
+    if (!scanAuth.ok) return scanAuth.response;
+    const { user } = scanAuth;
 
     const searchParams = req.nextUrl.searchParams;
     const eventId = searchParams.get('eventId') || undefined;
@@ -33,7 +27,7 @@ export async function GET(req: NextRequest) {
 
     // L'événement doit appartenir à l'espace de l'opérateur
     const event = await prisma.event.findFirst({
-      where: { id: eventId, ...scope.events(toViewer(auth.user)) },
+      where: { id: eventId, ...scope.events(toViewer(user)) },
       select: { id: true },
     });
     if (!event) {
